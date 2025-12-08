@@ -1,0 +1,501 @@
+---
+title: "Supplementary Materials"
+output: html_document
+---
+
+```{r package, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+#library(renv)
+#::restore()
+#for reproducibility purposes, version control.
+
+library(tidyverse)
+library(lmerTest)
+library(ggplot2)
+library(tidyr)
+library(ggplot2)
+library(httr)
+library(readxl)
+library(purrr)
+library(dplyr)
+library(tidytext)
+library(textdata)
+library(moments)
+library(tinytex)
+library(knitr)
+library(htmltools)
+library(sjPlot)
+library(jsonlite)
+library(dplyr)
+library(gridExtra)
+library(kableExtra)
+```
+
+
+
+
+
+##Study 1 regression logistic tables
+
+```{r tables Study 1,  echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+#Model climate basic random effect
+model1 = glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded + (1|rid)+ (1|unique_id), data = study1_data[study1_data$type=='Climate', ], family=binomial(),  na.action=na.omit)
+
+
+
+
+#Model climate full random effect
+model1_full = glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat|unique_id), data = study1_data[study1_data$type=='Climate', ],  family=binomial(),  na.action=na.omit)
+
+
+
+#Model neutral basic random effect
+model1_neutral = glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded + (1|rid)+ (1|unique_id), data = study1_data[study1_data$type=='Neutral', ],  family=binomial(),  na.action=na.omit)
+
+
+#Model neutral all random effect
+model1_neutral_full = glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat|unique_id), data = study1_data[study1_data$type=='Neutral', ],  family=binomial(),  na.action=na.omit)
+
+
+
+style <- htmltools::tags$style(HTML("
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th, td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+  }
+  td:nth-child(2) {
+    padding-right: 30px;  /* Add more space between Estimate and Std. Error */
+  }
+"))
+
+# Define predictor labels
+pred_labels <- c(
+  "(Intercept)" = "Intercept",
+  "StrengthRecoded" = "Logical Quality",
+  "prior" = "Prior Beliefs",
+  "partisanship_stat" = "Partisan Identity",
+  "DirectionRecoded" = "Argument Direction",
+  "StrengthRecoded:prior" = "Logical Quality × Prior Beliefs",
+  "StrengthRecoded:partisanship_stat" = "Logical Quality × Partisan Identity",
+  "prior:partisanship_stat" = "Prior Beliefs × Partisan Identity",
+  "StrengthRecoded:DirectionRecoded" = "Logical Quality × Argument Direction",
+  "prior:DirectionRecoded" = "Prior Beliefs × Argument Direction",
+  "partisanship_stat:DirectionRecoded" = "Partisan Identity × Argument Direction",
+  "StrengthRecoded:prior:partisanship_stat" = "Logical Quality × Prior Beliefs × Partisan Identity",
+  "StrengthRecoded:prior:DirectionRecoded" = "Logical Quality × Prior Beliefs × Argument Direction",
+  "StrengthRecoded:partisanship_stat:DirectionRecoded" = "Logical Quality × Partisan Identity × Argument Direction",
+  "prior:partisanship_stat:DirectionRecoded" = "Prior Beliefs × Partisan Identity × Argument Direction",
+  "StrengthRecoded:prior:partisanship_stat:DirectionRecoded" = "Logical Quality × Prior Beliefs × Partisan Identity × Argument Direction"
+)
+
+tab_model(model1,
+          dv.labels = c("Argument Strength Judgment"),  
+          pred.labels = pred_labels,  
+          title = "Table S1. Mixed Effects Logistic Regression Results for Study 1, Climate Arguments, ",
+          show.ci = FALSE, 
+          show.p = TRUE,
+          show.se = TRUE, 
+          show.re.var = TRUE,  # Changed to TRUE to show random effects variance
+          show.icc = FALSE,     
+          digits = 3,
+          show.ngroups = TRUE)  # Changed to TRUE to show number of groups
+
+cat("\nNote. Model includes random intercepts for participants and arguments.")
+cat('<div class="page-break"></div>')
+
+tab_model(model1_full,
+          dv.labels = c("Argument Strength Judgment"),  
+          pred.labels = pred_labels,  
+          title = "Table S2. Mixed Effects Logistic Regression with Maximal Random Effects for Study 1, Climate Arguments",
+          show.ci = FALSE, 
+          show.p = TRUE,
+          show.se = TRUE, 
+          show.re.var = TRUE,
+          show.icc = FALSE,     
+          digits = 3,
+          show.ngroups = TRUE)
+
+cat("\nNote. Model includes random intercepts and slopes for Logical Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs and Partisan Identity by arguments.")
+cat('<div class="page-break"></div>')
+
+tab_model(model1_neutral,
+          dv.labels = c("Argument Strength Judgment"),  
+          pred.labels = pred_labels,  
+          title = "Table S3. Mixed Effects Logistic Regression Results for Study 1, Climate Arguments, ",
+          show.ci = FALSE, 
+          show.p = TRUE,
+          show.se = TRUE, 
+          show.re.var = TRUE,  # Changed to TRUE to show random effects variance
+          show.icc = FALSE,     
+          digits = 3,
+          show.ngroups = TRUE)  # Changed to TRUE to show number of groups
+
+cat("\nNote. Model includes random intercepts for participants and arguments.")
+cat('<div class="page-break"></div>')
+
+tab_model(model1_neutral_full,
+          dv.labels = c("Argument Strength Judgment"),  
+          pred.labels = pred_labels,  
+          title = "Table S4. Mixed Effects Logistic Regression with Maximal Random Effects for Study 1, Neutral Arguments",
+          show.ci = FALSE, 
+          show.p = TRUE,
+          show.se = TRUE, 
+          show.re.var = TRUE,
+          show.icc = FALSE,     
+          digits = 3,
+          show.ngroups = TRUE)
+
+cat("\nNote. Model includes random intercepts and slopes for Logical Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs and Partisan Identity by arguments.")
+cat('<div class="page-break"></div>')
+
+htmltools::browsable(style)
+
+```
+
+
+## Study 2 (identity-threat context) logistic regression tables 
+
+```{r tables Study 2,  echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+#Model climate basic random effect
+model2 = glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (1|rid)+ (1|unique_id), data = study2_data[study2_data$type=='Climate', ], family=binomial(), na.action=na.omit)
+
+
+
+
+#Model climate full random effect
+model2_full = glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat+condition|unique_id), data = study2_data[study2_data$type=='Climate', ],family=binomial(), na.action=na.omit)
+
+
+
+#Model neutral basic random effect
+model2_neutral = glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (1|rid)+ (1|unique_id), data = study2_data[study2_data$type=='Neutral', ], family=binomial(), na.action=na.omit)
+
+
+#Model neutral all random effect
+model2_neutral_full = glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat+condition|unique_id), data = study2_data[study2_data$type=='Neutral', ], family=binomial(), na.action=na.omit)
+
+
+
+style <- htmltools::tags$style(HTML("
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th, td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+  }
+  td:nth-child(2) {
+    padding-right: 30px;  /* Add more space between Estimate and Std. Error */
+  }
+"))
+
+# Define predictor labels
+pred_labels <- c(
+  "(Intercept)" = "Intercept",
+  "StrengthRecoded" = "Logical Quality",
+  "prior" = "Prior Beliefs",
+  "partisanship_stat" = "Partisan Identity",
+  "DirectionRecoded" = "Argument Direction",
+  "conditiontreatment" = "Treatment (vs. Control)",
+  "StrengthRecoded:prior" = "Logical Quality × Prior Beliefs",
+  "StrengthRecoded:partisanship_stat" = "Logical Quality × Partisan Identity",
+  "prior:partisanship_stat" = "Prior Beliefs × Partisan Identity",
+  "StrengthRecoded:DirectionRecoded" = "Logical Quality × Argument Direction",
+  "prior:DirectionRecoded" = "Prior Beliefs × Argument Direction",
+  "partisanship_stat:DirectionRecoded" = "Partisan Identity × Argument Direction",
+  "StrengthRecoded:conditiontreatment" = "Logical Quality × Treatment",
+  "prior:conditiontreatment" = "Prior Beliefs × Treatment",
+  "partisanship_stat:conditiontreatment" = "Partisan Identity × Treatment",
+  "DirectionRecoded:conditiontreatment" = "Argument Direction × Treatment",
+  "StrengthRecoded:prior:partisanship_stat" = "Logical Quality × Prior Beliefs × Partisan Identity",
+  "StrengthRecoded:prior:DirectionRecoded" = "Logical Quality × Prior Beliefs × Argument Direction",
+  "StrengthRecoded:partisanship_stat:DirectionRecoded" = "Logical Quality × Partisan Identity × Argument Direction",
+  "prior:partisanship_stat:DirectionRecoded" = "Prior Beliefs × Partisan Identity × Argument Direction",
+  "StrengthRecoded:prior:conditiontreatment" = "Logical Quality × Prior Beliefs × Treatment",
+  "StrengthRecoded:partisanship_stat:conditiontreatment" = "Logical Quality × Partisan Identity × Treatment",
+  "prior:partisanship_stat:conditiontreatment" = "Prior Beliefs × Partisan Identity × Treatment",
+  "StrengthRecoded:DirectionRecoded:conditiontreatment" = "Logical Quality × Argument Direction × Treatment",
+  "prior:DirectionRecoded:conditiontreatment" = "Prior Beliefs × Argument Direction × Treatment",
+  "partisanship_stat:DirectionRecoded:conditiontreatment" = "Partisan Identity × Argument Direction × Treatment",
+  "StrengthRecoded:prior:partisanship_stat:DirectionRecoded" = "Logical Quality × Prior Beliefs × Partisan Identity × Argument Direction",
+  "StrengthRecoded:prior:partisanship_stat:conditiontreatment" = "Logical Quality × Prior Beliefs × Partisan Identity × Treatment",
+  "StrengthRecoded:prior:DirectionRecoded:conditiontreatment" = "Logical Quality × Prior Beliefs × Argument Direction × Treatment",
+  "StrengthRecoded:partisanship_stat:DirectionRecoded:conditiontreatment" = "Logical Quality × Partisan Identity × Argument Direction × Treatment",
+  "prior:partisanship_stat:DirectionRecoded:conditiontreatment" = "Prior Beliefs × Partisan Identity × Argument Direction × Treatment",
+  "StrengthRecoded:prior:partisanship_stat:DirectionRecoded:conditiontreatment" = "Logical Quality × Prior Beliefs × Partisan Identity × Argument Direction × Treatment"
+)
+
+tab_model(model2,
+          dv.labels = c("Argument Strength Judgment"),  
+          pred.labels = pred_labels,  
+          title = "Table S5. Mixed Effects Logistic Regression Results for Study 2, Climate Arguments",
+          show.ci = FALSE, 
+          show.p = TRUE,
+          show.se = TRUE, 
+          show.re.var = TRUE,  # Changed to TRUE to show random effects variance
+          show.icc = FALSE,     
+          digits = 3,
+          show.ngroups = TRUE)  # Changed to TRUE to show number of groups
+
+cat("\nNote. Model includes random intercepts for participants and arguments.")
+cat('<div class="page-break"></div>')
+
+tab_model(model2_full,
+          dv.labels = c("Argument Strength Judgment"),  
+          pred.labels = pred_labels,  
+          title = "Table S6. Mixed Effects Logistic Regression with Maximal Random Effects for Study 2, Climate Arguments",
+          show.ci = FALSE, 
+          show.p = TRUE,
+          show.se = TRUE, 
+          show.re.var = TRUE,
+          show.icc = FALSE,     
+          digits = 3,
+          show.ngroups = TRUE)
+
+cat("\nNote. Model includes random intercepts and slopes for Logical Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs, Partisan Identity and Treatment by arguments.")
+cat('<div class="page-break"></div>')
+
+tab_model(model2_neutral,
+          dv.labels = c("Argument Strength Judgment"),  
+          pred.labels = pred_labels,  
+          title = "Table S7. Mixed Effects Logistic Regression Results for Study 2, Neutral Arguments",
+          show.ci = FALSE, 
+          show.p = TRUE,
+          show.se = TRUE, 
+          show.re.var = TRUE,  # Changed to TRUE to show random effects variance
+          show.icc = FALSE,     
+          digits = 3,
+          show.ngroups = TRUE)  # Changed to TRUE to show number of groups
+
+cat("\nNote. Model includes random intercepts for participants and arguments.")
+cat('<div class="page-break"></div>')
+
+tab_model(model2_neutral_full,
+          dv.labels = c("Argument Strength Judgment"),  
+          pred.labels = pred_labels,  
+          title = "Table S8. Mixed Effects Logistic Regression with Maximal Random Effects for Study 2, Neutral Arguments",
+          show.ci = FALSE, 
+          show.p = TRUE,
+          show.se = TRUE, 
+          show.re.var = TRUE,
+          show.icc = FALSE,     
+          digits = 3,
+          show.ngroups = TRUE)
+
+cat("\nNote. Model includes random intercepts and slopes for Logical Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs, Partisan Identity and Treatment by arguments.")
+cat('<div class="page-break"></div>')
+
+htmltools::browsable(style)
+
+
+
+
+```
+
+
+## Study 3 (logical warnings) logistic regression tables 
+
+```{r tables Study 3,  echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+#Model climate basic random effect
+model3 = glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (1|rid)+ (1|unique_id), data = study3_data[study3_data$type=='Climate', ], family=binomial(),   na.action=na.omit)
+
+
+
+#Model climate full random effect
+model3_full = glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat+condition|unique_id), data = study3_data[study3_data$type=='Climate', ], family=binomial(),   na.action=na.omit)
+
+
+
+#Model neutral basic random effect
+model3_neutral = glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (1|rid)+ (1|unique_id), data = study3_data[study3_data$type=='Neutral', ], family=binomial(),   na.action=na.omit)
+
+
+#Model neutral all random effect
+model3_neutral_full = glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat+condition|unique_id), data = study3_data[study3_data$type=='Neutral', ], family=binomial(),  na.action=na.omit)
+
+
+
+style <- htmltools::tags$style(HTML("
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th, td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+  }
+  td:nth-child(2) {
+    padding-right: 30px;  /* Add more space between Estimate and Std. Error */
+  }
+"))
+
+# Define predictor labels
+pred_labels <- c(
+  "(Intercept)" = "Intercept",
+  "StrengthRecoded" = "Logical Quality",
+  "prior" = "Prior Beliefs",
+  "partisanship_stat" = "Partisan Identity",
+  "DirectionRecoded" = "Argument Direction",
+  "conditiontreatment" = "Treatment (vs. Control)",
+  "StrengthRecoded:prior" = "Logical Quality × Prior Beliefs",
+  "StrengthRecoded:partisanship_stat" = "Logical Quality × Partisan Identity",
+  "prior:partisanship_stat" = "Prior Beliefs × Partisan Identity",
+  "StrengthRecoded:DirectionRecoded" = "Logical Quality × Argument Direction",
+  "prior:DirectionRecoded" = "Prior Beliefs × Argument Direction",
+  "partisanship_stat:DirectionRecoded" = "Partisan Identity × Argument Direction",
+  "StrengthRecoded:conditiontreatment" = "Logical Quality × Treatment",
+  "prior:conditiontreatment" = "Prior Beliefs × Treatment",
+  "partisanship_stat:conditiontreatment" = "Partisan Identity × Treatment",
+  "DirectionRecoded:conditiontreatment" = "Argument Direction × Treatment",
+  "StrengthRecoded:prior:partisanship_stat" = "Logical Quality × Prior Beliefs × Partisan Identity",
+  "StrengthRecoded:prior:DirectionRecoded" = "Logical Quality × Prior Beliefs × Argument Direction",
+  "StrengthRecoded:partisanship_stat:DirectionRecoded" = "Logical Quality × Partisan Identity × Argument Direction",
+  "prior:partisanship_stat:DirectionRecoded" = "Prior Beliefs × Partisan Identity × Argument Direction",
+  "StrengthRecoded:prior:conditiontreatment" = "Logical Quality × Prior Beliefs × Treatment",
+  "StrengthRecoded:partisanship_stat:conditiontreatment" = "Logical Quality × Partisan Identity × Treatment",
+  "prior:partisanship_stat:conditiontreatment" = "Prior Beliefs × Partisan Identity × Treatment",
+  "StrengthRecoded:DirectionRecoded:conditiontreatment" = "Logical Quality × Argument Direction × Treatment",
+  "prior:DirectionRecoded:conditiontreatment" = "Prior Beliefs × Argument Direction × Treatment",
+  "partisanship_stat:DirectionRecoded:conditiontreatment" = "Partisan Identity × Argument Direction × Treatment",
+  "StrengthRecoded:prior:partisanship_stat:DirectionRecoded" = "Logical Quality × Prior Beliefs × Partisan Identity × Argument Direction",
+  "StrengthRecoded:prior:partisanship_stat:conditiontreatment" = "Logical Quality × Prior Beliefs × Partisan Identity × Treatment",
+  "StrengthRecoded:prior:DirectionRecoded:conditiontreatment" = "Logical Quality × Prior Beliefs × Argument Direction × Treatment",
+  "StrengthRecoded:partisanship_stat:DirectionRecoded:conditiontreatment" = "Logical Quality × Partisan Identity × Argument Direction × Treatment",
+  "prior:partisanship_stat:DirectionRecoded:conditiontreatment" = "Prior Beliefs × Partisan Identity × Argument Direction × Treatment",
+  "StrengthRecoded:prior:partisanship_stat:DirectionRecoded:conditiontreatment" = "Logical Quality × Prior Beliefs × Partisan Identity × Argument Direction × Treatment"
+)
+
+tab_model(model2,
+          dv.labels = c("Argument Strength Judgment"),  
+          pred.labels = pred_labels,  
+          title = "Table S9. Mixed Effects Logistic Regression Results for Study 9, Climate Arguments",
+          show.ci = FALSE, 
+          show.p = TRUE,
+          show.se = TRUE, 
+          show.re.var = TRUE,  # Changed to TRUE to show random effects variance
+          show.icc = FALSE,     
+          digits = 3,
+          show.ngroups = TRUE)  # Changed to TRUE to show number of groups
+
+cat("\nNote. Model includes random intercepts for participants and arguments.")
+cat('<div class="page-break"></div>')
+
+tab_model(model2_full,
+          dv.labels = c("Argument Strength Judgment"),  
+          pred.labels = pred_labels,  
+          title = "Table S10. Mixed Effects Logistic Regression with Maximal Random Effects for Study 9, Climate Arguments",
+          show.ci = FALSE, 
+          show.p = TRUE,
+          show.se = TRUE, 
+          show.re.var = TRUE,
+          show.icc = FALSE,     
+          digits = 3,
+          show.ngroups = TRUE)
+
+cat("\nNote. Model includes random intercepts and slopes for Logical Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs, Partisan Identity and Treatment by arguments.")
+cat('<div class="page-break"></div>')
+
+tab_model(model2_neutral,
+          dv.labels = c("Argument Strength Judgment"),  
+          pred.labels = pred_labels,  
+          title = "Table S11. Mixed Effects Logistic Regression Results for Study 3, Neutral Arguments",
+          show.ci = FALSE, 
+          show.p = TRUE,
+          show.se = TRUE, 
+          show.re.var = TRUE,  # Changed to TRUE to show random effects variance
+          show.icc = FALSE,     
+          digits = 3,
+          show.ngroups = TRUE)  # Changed to TRUE to show number of groups
+
+cat("\nNote. Model includes random intercepts for participants and arguments.")
+cat('<div class="page-break"></div>')
+
+tab_model(model2_neutral_full,
+          dv.labels = c("Argument Strength Judgment"),  
+          pred.labels = pred_labels,  
+          title = "Table S12. Mixed Effects Logistic Regression with Maximal Random Effects for Study 3, Neutral Arguments",
+          show.ci = FALSE, 
+          show.p = TRUE,
+          show.se = TRUE, 
+          show.re.var = TRUE,
+          show.icc = FALSE,     
+          digits = 3,
+          show.ngroups = TRUE)
+
+cat("\nNote. Model includes random intercepts and slopes for Logical Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs, Partisan Identity and Treatment by arguments.")
+cat('<div class="page-break"></div>')
+
+htmltools::browsable(style)
+
+```
+
+
+## Study 2 effect heterogeneity over partisanship and prior beliefs 
+```{r heterogeneity identity threat, echo= FALSE, warning=FALSE, message=FALSE, results='asis', include=FALSE}
+
+
+###test weather condition has an effect for Republicans and Democrats
+#REpublicans
+model3 = glmer(ResponseRecoded ~ StrengthRecoded*condition*DirectionRecoded + (1|rid)+ (1|unique_id), data = study2_data[study2_data$type=='Climate' & study2_data$partisanship_stat < 0, ], family=binomial(),   na.action=na.omit)
+summary(model3)
+#Democrats
+model3 = glmer(ResponseRecoded ~ StrengthRecoded*condition*DirectionRecoded + (1|rid)+ (1|unique_id), data = study2_data[study2_data$type=='Climate' & study2_data$partisanship_stat > 0, ], family=binomial(),   na.action=na.omit)
+summary(model3)
+
+
+### test effect for believers and skeptics
+#Skeptics
+model3 = glmer(ResponseRecoded ~ StrengthRecoded*condition*DirectionRecoded + (1|rid)+ (1|unique_id), data = study2_data[study2_data$type=='Climate' & study2_data$prior < 0, ], family=binomial(),   na.action=na.omit)
+summary(model3)
+#Believers
+model3 = glmer(ResponseRecoded ~ StrengthRecoded*condition*DirectionRecoded + (1|rid)+ (1|unique_id), data = study2_data[study2_data$type=='Climate' & study2_data$prior > 0, ], family=binomial(),   na.action=na.omit)
+summary(model3)
+
+
+
+
+
+```
+
+We find little heterogeneity on the key results on Study 2. That is, political identity threats decrease perceived strength of prior inconsistent arguments. We observe significant argument directionality and treatment interaction for climate skeptics, $b = -0.35, p < .001$, as well as climate believers, $b = -0.42, p < .001$, suggesting that political identity threats decrease strength perception of prior-consistent arguments. We found similar effects for Republicans, $b = -0.35, p < .001$, and Democrats, $b = -0.21, p = 0.06$, though the observed effect on Democrats were smaller.
+
+## Study 3 effect heterogeneity over partisanship and prior beliefs 
+
+```{r heterogeneity for logic warnings, echo= FALSE, warning=FALSE, message=FALSE, results='asis', include=FALSE}
+
+
+###test weather condition has an effect for Republicans and Democrats
+#REpublicans
+model3 = glmer(ResponseRecoded ~ StrengthRecoded*condition + (1|rid)+ (1|unique_id), data = study3_data[study3_data$type=='Climate' & study3_data$partisanship_stat < 0, ], family=binomial(),   na.action=na.omit)
+summary(model3)
+#Democrats
+model3 = glmer(ResponseRecoded ~ StrengthRecoded*condition + (1|rid)+ (1|unique_id), data = study3_data[study3_data$type=='Climate' & study3_data$partisanship_stat > 0, ], family=binomial(),   na.action=na.omit)
+summary(model3)
+
+
+### test effect for believers and skeptics
+#Skeptics
+model3 = glmer(ResponseRecoded ~ StrengthRecoded*condition*DirectionRecoded + (1|rid)+ (1|unique_id), data = study3_data[study3_data$type=='Climate' & study3_data$prior < 0.001, ], family=binomial(),   na.action=na.omit)
+summary(model3)
+#Believers
+model3 = glmer(ResponseRecoded ~ StrengthRecoded*condition*DirectionRecoded + (1|rid)+ (1|unique_id), data = study3_data[study3_data$type=='Climate' & study3_data$prior > 0, ], family=binomial(),   na.action=na.omit)
+summary(model3)
+
+
+
+
+
+```
+
+
+We find little heterogeneity on the key results on Study 3. That is, logical warnings decrease perceived strength of weak, but not strong arguments. We observe significant logical quality and treatment interaction for climate skeptics, $b = 0.23, p = .05$, as well as climate believers, $b = 0.30, p < .001$. We found similar effects for Republicans, $b = 0.32, p < .001$, and Democrats, $b = 0.35, p < .001$.
