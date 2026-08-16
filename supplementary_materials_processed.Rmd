@@ -1,0 +1,1733 @@
+---
+title: "Supplementary Materials for 'Simple Logic Warnings Improve Climate Argument Evaluation Across Beliefs and Partisanship'" 
+output:
+  html_document:
+    self_contained: true
+---
+
+<style>
+/* ------------------------------------------------------------------ *
+ *  Print / PDF layout. Screen viewing is left untouched.              *
+ * ------------------------------------------------------------------ */
+body { max-width: 1000px; margin: 0 auto; }
+caption { caption-side: top; text-align: left; }
+.figcap { color: #000; font-weight: bold; }
+
+@media print {
+  @page { size: A4 portrait; margin: 1.6cm; }
+
+  /* Make sure background shading (striped rows) and colours actually print */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body { max-width: none; margin: 0; font-size: 11pt; }
+
+  .page-break {
+    display: block;
+    clear: both;
+    height: 0;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  table, .kable, .kable_wrapper,
+  figure, .figure, img, svg {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  table { font-size: 9pt; max-width: 100%; table-layout: auto; }
+  th, td { padding: 3px 6px; white-space: normal; word-break: normal;
+           overflow-wrap: anywhere; }
+
+  h1, h2, h3, h4, h5, h6 {
+    page-break-inside: avoid; break-inside: avoid;
+    page-break-after:  avoid; break-after:  avoid;
+  }
+  h1 + *, h2 + *, h3 + *, h4 + *, h5 + *, h6 + * {
+    page-break-before: avoid; break-before: avoid;
+  }
+
+  .figcap {
+    page-break-inside: avoid; break-inside: avoid;
+    page-break-after:  avoid; break-after:  avoid;
+  }
+  .figcap + * { page-break-before: avoid; break-before: avoid; }
+
+  caption, .caption { page-break-inside: avoid; break-inside: avoid;
+                      page-break-after: avoid;  break-after:  avoid; }
+
+  h2 { page-break-before: always; break-before: page; }
+
+  img, svg { max-width: 100%; height: auto; }
+}
+</style>
+
+```{r package, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+#library(renv)
+#::restore()
+#for reproducibility purposes, version control.
+
+library(tidyverse)
+library(lmerTest)
+library(ggplot2)
+library(tidyr)
+library(ggplot2)
+library(httr)
+library(readxl)
+library(purrr)
+library(dplyr)
+library(tidytext)
+library(textdata)
+library(moments)
+library(tinytex)
+library(knitr)
+library(htmltools)
+library(sjPlot)
+library(jsonlite)
+library(dplyr)
+library(gridExtra)
+library(kableExtra)
+```
+
+```{r load processed data, echo=FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+study1_data  <- readRDS("processed_data/study1_data.rds")   # Study 1  (no condition)
+study2_data  <- readRDS("processed_data/study2_data.rds")   # Study 2a (control/treatment)
+study2b_data <- readRDS("processed_data/study2b_data.rds")  # Study 2b (control/treatment)
+study3_data  <- readRDS("processed_data/study3_data.rds")   # Study 3  (control/treatment)
+```
+
+```{r model caching helper, echo=FALSE, warning=FALSE, message=FALSE}
+
+
+model_cache_dir <- "model_cache"
+if (!dir.exists(model_cache_dir)) dir.create(model_cache_dir)
+
+fit_or_load <- function(model_id, fit_expr) {
+  cache_file <- file.path(model_cache_dir, paste0(model_id, ".rds"))
+
+  if (file.exists(cache_file)) {
+    message("Loading cached model: ", model_id)
+    readRDS(cache_file)            # fit_expr is never touched -> no re-fitting
+  } else {
+    message("Fitting model (will cache): ", model_id)
+    model <- fit_expr             # evaluate the model call now
+    saveRDS(model, cache_file)
+    model
+  }
+}
+
+# ---- Regression table renderer ---------------------------------------------
+# Renders a fixed-effects table for a (g)lmer model with columns:
+#   Predictor | Beta | Std. Error | p | Odds Ratio
+# Betas and standard errors are on the log-odds (link) scale; the odds ratio
+# column is exp(Beta) and is placed AFTER the p-value column.
+render_reg_table <- function(m, title_text, note_text = NULL, pred_labels = NULL) {
+  co  <- summary(m)$coefficients
+  est <- unname(co[, "Estimate"])
+  se  <- unname(co[, "Std. Error"])
+  pv  <- unname(co[, ncol(co)])     # final column is the p-value (Pr(>|z|))
+  orr <- exp(est)
+  terms <- rownames(co)
+
+  labs <- vapply(terms, function(t) {
+    if (!is.null(pred_labels) && t %in% names(pred_labels)) pred_labels[[t]] else t
+  }, character(1))
+
+  fmt_p <- function(p) ifelse(p < .001, "< 0.001", sprintf("%.3f", p))
+
+  df <- data.frame(
+    Predictor    = unname(labs),
+    Beta         = sprintf("%.3f", est),
+    `Std. Error` = sprintf("%.3f", se),
+    p            = fmt_p(pv),
+    `Odds Ratio` = sprintf("%.3f", orr),
+    row.names    = NULL,
+    check.names  = FALSE,
+    stringsAsFactors = FALSE
+  )
+
+  # Model-fit information for the footnote
+  fit_line <- tryCatch({
+    paste0("Observations = ", stats::nobs(m), ". ")
+  }, error = function(e) "")
+  scale_line <- "Beta and Std. Error are on the log-odds scale; Odds Ratio = exp(Beta)."
+  full_note  <- paste0(if (is.null(note_text)) "" else paste0(note_text, " "),
+                       fit_line, scale_line)
+
+  # Black + bold caption (HTML)
+  caption_html <- paste0("<span style='color:black; font-weight:bold;'>",
+                         title_text, "</span>")
+
+  k <- kbl(df, caption = caption_html,
+           align = c("l", "r", "r", "r", "r"),
+           booktabs = TRUE, escape = FALSE,
+           row.names = FALSE) %>%
+    kable_styling(full_width = FALSE, position = "left",
+                  bootstrap_options = c("striped", "hover", "condensed")) %>%
+    footnote(general = full_note, general_title = "Note.",
+             footnote_as_chunk = TRUE, threeparttable = TRUE)
+  print(k)
+  cat('<div class="page-break"></div>')
+}
+
+```
+
+## Experimental Instructions 
+
+### Study 1 instructions
+
+Participants were presented with the following instructions before they started with the reasoning problems: 
+_‘In this experiment, you will see 48 statements about science and technology. We want to understand how strong you think those statements or arguments are. After you read the statement, you will have to click on either “Strong” or “Weak” and then the experiment will automatically advance to the next statement.  We will also ask you how difficult it was for you to make this decision after each statement. Click on “Next” to start the experiment!’_
+
+### Study 2 Instructions
+
+Participants in the *treatment* condition were presented with the following instructions before they started with the reasoning problems: 
+_‘In this experiment, you will see 36 statements (in the form of tweets) about science and technology. These statements are accompanied by comments from people who re-shared them - just like you would see on X (formerly Twitter) or other social media such as Facebook. We want to know what you think of these tweets in the light of the accompanying comment._
+_This is how the trials will look: [picture of trial]_
+_We want to understand how strong you think the original statements or arguments are. You will have to click on either “Weak” or “Strong”. We will also ask you how difficult it was for you to make this decision after each statement. Once you have made up your mind about strength and difficulty, you can click on Next Tweet._
+_To ensure that you read both texts, we will first show you the comment for 5 seconds, and then the comment and the questions after that._
+_Click on “Next” to start the experiment!’_
+
+Participants in the *control* condition were presented with the following instructions before they started with the reasoning problems: 
+_‘In this experiment, you will see 36 statements about science and technology. We want to understand how strong you think those statements or arguments are. After you read the statement, you will have to click on either “Strong” or “Weak” and then the experiment will automatically advance to the next statement.  We will also ask you how difficult it was for you to make this decision after each statement. Click on “Next” to start the experiment!’_
+
+### Study 3 Instructions
+
+Participants in the *treatment* condition were presented with the following instructions before they started with the reasoning problems: 
+_‘In this experiment, you will see 36 statements (in the form of tweets) about science and technology. Some of these statements may contain logical fallacies. A fallacy is the use of invalid or otherwise faulty reasoning in the construction of an argument._
+_For example, the statement "Aliens must exist because no one has proven they don’t" commits the Appeal to Ignorance fallacy. This is faulty reasoning because a lack of evidence against something does not prove it to be true, just as the inability to disprove unicorns doesn’t mean they exist._
+_Some of the statements were checked by an Artificial Intelligence for such argumentative fallacies. When the AI found a fallacy, it created a short warning and a clickable link where the fallacy is explained. If you want to know more, you can click on the link. However, it is not compulsory in this experiment._
+_This is how a trial with a fallacy warning will look: [picture of a trial]_
+_We want to understand how strong you think the statements or arguments are. We are interested in your true opinion about the statement, NOT the warning. You will have to click on either “Weak” or “Strong”. We will also ask you how difficult it was for you to make this decision after each statement. Once you have made up your mind about strength and difficulty, you can click on Next Tweet._
+_Click on “Next” to start the experiment!’_
+
+
+Participants in the *control* condition were presented with the following instructions before they started with the reasoning problems: 
+_‘In this experiment, you will see 36 statements (in the form of tweets) about science and technology. Some of these statements may contain logical fallacies. A fallacy is the use of invalid or otherwise faulty reasoning in the construction of an argument._
+_For example, the statement "Aliens must exist because no one has proven they don’t" commits the Appeal to Ignorance fallacy. This is faulty reasoning because a lack of evidence against something does not prove it to be true, just as the inability to disprove unicorns doesn’t mean they exist._
+_We want to understand how strong you think the original statements or arguments are. You will have to click on either “Weak” or “Strong”. We will also ask you how difficult it was for you to make this decision after each statement. Once you have made up your mind about strength and difficulty, you can click on Next Tweet._
+_Click on “Next” to start the experiment!’_
+
+
+
+
+## Sample composition
+
+```{r sample composition, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+participant_summary <- function(d) {
+  d %>%
+    filter(type == "Climate") %>%
+    group_by(rid) %>%
+    summarise(
+      climate_prior = mean(prior, na.rm = TRUE),
+      partisanship  = dplyr::first(partisanship_stat),
+      climate1_1    = mean(climate1_1, na.rm = TRUE),
+      climate2_1    = mean(climate2_1, na.rm = TRUE),
+      climate3_1    = mean(climate3_1, na.rm = TRUE),
+      climate3_2    = mean(climate3_2, na.rm = TRUE),
+      climate3_3    = mean(climate3_3, na.rm = TRUE),
+      climate3_4    = mean(climate3_4, na.rm = TRUE),
+      .groups       = "drop"
+    ) %>%
+    mutate(
+      # mean() returns NaN when all four climate3_n are NA; convert to NA
+      dplyr::across(c(climate1_1, climate2_1, climate3_1, climate3_2,
+                      climate3_3, climate3_4),
+                    ~ ifelse(is.nan(.x), NA_real_, .x)),
+      climate3_avg = rowMeans(
+        cbind(climate3_1, climate3_2, climate3_3, climate3_4),
+        na.rm = TRUE
+      ),
+      climate3_avg = ifelse(is.nan(climate3_avg), NA_real_, climate3_avg)
+    )
+}
+
+sample_row <- function(d, study_name) {
+  per_pp <- participant_summary(d)
+  r_hap <- suppressWarnings(cor(per_pp$climate1_1,   per_pp$partisanship,
+                                use = "pairwise.complete.obs"))
+  r_ant <- suppressWarnings(cor(per_pp$climate2_1,   per_pp$partisanship,
+                                use = "pairwise.complete.obs"))
+  r_thr <- suppressWarnings(cor(per_pp$climate3_avg, per_pp$partisanship,
+                                use = "pairwise.complete.obs"))
+  data.frame(
+    Study               = study_name,
+    `Total N`           = nrow(per_pp),
+    `Climate Skeptics`  = sum(per_pp$climate_prior < 0, na.rm = TRUE),
+    `Climate Believers` = sum(per_pp$climate_prior > 0, na.rm = TRUE),
+    Republicans         = sum(per_pp$partisanship < 0, na.rm = TRUE),
+    Democrats           = sum(per_pp$partisanship > 0, na.rm = TRUE),
+    `r(Happening)`      = sprintf("%.2f", r_hap),
+    `r(Anthropogenic)`  = sprintf("%.2f", r_ant),
+    `r(Threat avg)`     = sprintf("%.2f", r_thr),
+    check.names = FALSE
+  )
+}
+
+sample_composition_tbl <- dplyr::bind_rows(
+  sample_row(study1_data,  "Study 1"),
+  sample_row(study2_data,  "Study 2a"),
+  sample_row(study2b_data, "Study 2b"),
+  sample_row(study3_data,  "Study 3")
+)
+
+kbl(
+  sample_composition_tbl,
+  caption  = paste0("<span style='color:black; font-weight:bold;'>",
+                    "Table S1. Sample composition by study, prior climate belief, ",
+                    "partisan identity, and Pearson correlations between each prior ",
+                    "climate-belief item and partisan identity.</span>"),
+  align    = c("l", rep("r", ncol(sample_composition_tbl) - 1)),
+  booktabs = TRUE,
+  escape   = FALSE,
+  row.names = FALSE
+) %>%
+  kable_styling(full_width = FALSE, position = "left",
+                bootstrap_options = c("striped", "hover", "condensed")) %>%
+  add_header_above(c(" " = 2,
+                     "Climate belief" = 2,
+                     "Partisan identity" = 2,
+                     "Correlation (r) with partisan identity" = 3)) %>%
+  row_spec(0, extra_css = "font-size: 75%; white-space: nowrap;") %>%
+  print()
+
+cat('<div class="page-break"></div>')
+
+```
+
+## Distribution of prior climate beliefs
+
+The histograms below show, for each study separately, the distribution of participants' raw responses to the three climate prior-belief items. Values are on the original 0–100 scale; the dashed vertical line marks the midpoint at 50. *Note.* The third item ("Climate change is a threat") is computed per participant as the mean of the four sub-items.
+
+```{r prior histograms helper, echo=FALSE, warning=FALSE, message=FALSE}
+
+make_prior_hist_row <- function(d, study_name) {
+
+  per_pp <- d %>%
+    dplyr::group_by(rid) %>%
+    dplyr::summarise(
+      climate1_1 = mean(climate1_1, na.rm = TRUE),
+      climate2_1 = mean(climate2_1, na.rm = TRUE),
+      climate3_1 = mean(climate3_1, na.rm = TRUE),
+      climate3_2 = mean(climate3_2, na.rm = TRUE),
+      climate3_3 = mean(climate3_3, na.rm = TRUE),
+      climate3_4 = mean(climate3_4, na.rm = TRUE),
+      .groups    = "drop"
+    ) %>%
+    dplyr::mutate(
+      dplyr::across(c(climate1_1, climate2_1, climate3_1, climate3_2,
+                      climate3_3, climate3_4),
+                    ~ifelse(is.nan(.x), NA_real_, .x)),
+      climate3_avg = rowMeans(
+        cbind(climate3_1, climate3_2, climate3_3, climate3_4),
+        na.rm = TRUE
+      ),
+      climate3_avg = ifelse(is.nan(climate3_avg), NA_real_, climate3_avg)
+    )
+
+  hist_one <- function(varname, sub_title) {
+    plot_data <- per_pp[!is.na(per_pp[[varname]]), , drop = FALSE]
+    ggplot(plot_data, aes(x = .data[[varname]])) +
+      geom_histogram(bins = 20, fill = "steelblue", color = "white", alpha = 0.9) +
+      geom_vline(xintercept = 50, linetype = "dashed",
+                 color = "red", linewidth = 0.7) +
+      scale_x_continuous(
+        breaks = c(0, 50, 100),
+        labels = c("More skeptical", "", "More believer"),
+        limits = c(-5, 105),                       
+        expand = ggplot2::expansion(add = 0)
+      ) +
+      labs(title    = sub_title,
+           x        = NULL,
+           y        = "N participants") +
+      theme_minimal(base_size = 11) +
+      theme(plot.title  = element_text(hjust = 0.5, size = 11),
+            axis.text.x = element_text(size = 9, hjust = 0.5),
+            plot.margin = margin(t = 5, r = 18, b = 5, l = 8))
+  }
+
+  gridExtra::grid.arrange(
+    hist_one("climate1_1",   paste0(study_name, ": Climate change is happening")),
+    hist_one("climate2_1",   paste0(study_name, ": Climate change is anthropogenic")),
+    hist_one("climate3_avg", paste0(study_name, ": Climate change is a threat (avg of 4 items)")),
+    ncol = 3
+  )
+}
+
+```
+
+<p class="figcap">Figure S1. Distribution of prior climate beliefs — Study 1.</p>
+
+```{r prior histograms S1, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=3.5}
+make_prior_hist_row(study1_data, "Study 1")
+```
+
+*Note.* Sample size: *N* = 1195. Participants with a missing value on a given item are omitted from that panel.
+
+<p class="figcap">Figure S2. Distribution of prior climate beliefs — Study 2a.</p>
+
+```{r prior histograms S2a, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=3.5}
+make_prior_hist_row(study2_data, "Study 2a")
+```
+
+*Note.* Sample sizes: *N*~control~ = 469, *N*~treatment~ = 452. Prior beliefs were measured before the manipulation, so the two conditions are pooled here. Participants with a missing value on a given item are omitted from that panel.
+
+<p class="figcap">Figure S3. Distribution of prior climate beliefs — Study 2b.</p>
+
+```{r prior histograms S2b, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=3.5}
+make_prior_hist_row(study2b_data, "Study 2b")
+```
+
+*Note.* Sample sizes: *N*~control~ = 514, *N*~treatment~ = 489. Prior beliefs were measured before the manipulation, so the two conditions are pooled here. Participants with a missing value on a given item are omitted from that panel.
+
+<p class="figcap">Figure S4. Distribution of prior climate beliefs — Study 3.</p>
+
+```{r prior histograms S3, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=3.5}
+make_prior_hist_row(study3_data, "Study 3")
+```
+
+*Note.* Sample sizes: *N*~control~ = 546, *N*~treatment~ = 514. Prior beliefs were measured before the manipulation, so the two conditions are pooled here. Participants with a missing value on a given item are omitted from that panel.
+
+## Study 1: Neutral context
+
+```{r tables Study 1,  echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+#Model climate basic random effect
+model1 = fit_or_load("model1", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded + (1|rid)+ (1|unique_id), data = study1_data[study1_data$type=='Climate', ], family=binomial(),  na.action=na.omit))
+
+
+
+
+#Model climate full random effect
+model1_full = fit_or_load("model1_full", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat|unique_id), data = study1_data[study1_data$type=='Climate', ],  family=binomial(),  na.action=na.omit))
+
+
+
+#Model neutral basic random effect
+model1_neutral = fit_or_load("model1_neutral", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded + (1|rid)+ (1|unique_id), data = study1_data[study1_data$type=='Neutral', ],  family=binomial(),  na.action=na.omit))
+
+
+#Model neutral all random effect
+model1_neutral_full = fit_or_load("model1_neutral_full", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat|unique_id), data = study1_data[study1_data$type=='Neutral', ],  family=binomial(),  na.action=na.omit))
+
+
+
+style <- htmltools::tags$style(HTML("
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th, td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+  }
+  td:nth-child(2) {
+    padding-right: 30px;  /* Add more space between Estimate and Std. Error */
+  }
+"))
+
+# Define predictor labels
+pred_labels <- c(
+  "(Intercept)" = "Intercept",
+  "StrengthRecoded" = "Argument Quality",
+  "prior" = "Prior Beliefs",
+  "partisanship_stat" = "Partisan Identity",
+  "DirectionRecoded" = "Argument Direction",
+  "StrengthRecoded:prior" = "Argument Quality × Prior Beliefs",
+  "StrengthRecoded:partisanship_stat" = "Argument Quality × Partisan Identity",
+  "prior:partisanship_stat" = "Prior Beliefs × Partisan Identity",
+  "StrengthRecoded:DirectionRecoded" = "Argument Quality × Argument Direction",
+  "prior:DirectionRecoded" = "Prior Beliefs × Argument Direction",
+  "partisanship_stat:DirectionRecoded" = "Partisan Identity × Argument Direction",
+  "StrengthRecoded:prior:partisanship_stat" = "Argument Quality × Prior Beliefs × Partisan Identity",
+  "StrengthRecoded:prior:DirectionRecoded" = "Argument Quality × Prior Beliefs × Argument Direction",
+  "StrengthRecoded:partisanship_stat:DirectionRecoded" = "Argument Quality × Partisan Identity × Argument Direction",
+  "prior:partisanship_stat:DirectionRecoded" = "Prior Beliefs × Partisan Identity × Argument Direction",
+  "StrengthRecoded:prior:partisanship_stat:DirectionRecoded" = "Argument Quality × Prior Beliefs × Partisan Identity × Argument Direction"
+)
+
+render_reg_table(model1,
+  "Table S2. Mixed Effects Logistic Regression Results for Study 1, Climate Arguments.",
+  "Model includes random intercepts for participants and arguments.",
+  pred_labels)
+
+render_reg_table(model1_full,
+  "Table S3. Mixed Effects Logistic Regression with Maximal Random Effects for Study 1, Climate Arguments.",
+  "Model includes random intercepts and slopes for Argument Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs and Partisan Identity by arguments.",
+  pred_labels)
+
+render_reg_table(model1_neutral,
+  "Table S4. Mixed Effects Logistic Regression Results for Study 1, Neutral Arguments.",
+  "Model includes random intercepts for participants and arguments.",
+  pred_labels)
+
+render_reg_table(model1_neutral_full,
+  "Table S5. Mixed Effects Logistic Regression with Maximal Random Effects for Study 1, Neutral Arguments.",
+  "Model includes random intercepts and slopes for Argument Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs and Partisan Identity by arguments.",
+  pred_labels)
+
+```
+
+
+```{r heterogeneity helpers, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+pred_labels_het <- c(
+  "(Intercept)"                                               = "Intercept",
+  "StrengthRecoded"                                           = "Argument Quality",
+  "DirectionRecoded"                                          = "Argument Direction",
+  "conditiontreatment"                                        = "Treatment (vs. Control)",
+  "StrengthRecoded:DirectionRecoded"                          = "Argument Quality × Argument Direction",
+  "StrengthRecoded:conditiontreatment"                        = "Argument Quality × Treatment",
+  "conditiontreatment:DirectionRecoded"                       = "Treatment × Argument Direction",
+  "DirectionRecoded:conditiontreatment"                       = "Argument Direction × Treatment",
+  "StrengthRecoded:conditiontreatment:DirectionRecoded"       = "Argument Quality × Treatment × Argument Direction",
+  "StrengthRecoded:DirectionRecoded:conditiontreatment"       = "Argument Quality × Argument Direction × Treatment"
+)
+
+render_het_table <- function(m, table_label, subgroup_label) {
+  render_reg_table(
+    m,
+    paste0(table_label, ". Mixed Effects Logistic Regression — ",
+           subgroup_label, " (Climate Items)."),
+    "Model fit on Climate items in the specified subgroup, with random intercepts for participants and arguments.",
+    pred_labels_het
+  )
+}
+
+make_het_barplot <- function(d_sub, plot_title, item_type = "Climate") {
+
+  has_cond <- "condition" %in% names(d_sub) && any(!is.na(d_sub$condition))
+
+  filt <- d_sub %>%
+    filter(type == item_type,
+           !is.na(Consistency),
+           !is.na(strength),
+           !is.na(ResponseRecoded))
+  if (has_cond) filt <- filt %>% filter(!is.na(condition))
+
+  filt <- filt %>%
+    mutate(
+      Consistency = factor(Consistency, levels = c("Consistent", "Inconsistent")),
+      strength    = factor(strength,    levels = c("Strong", "Weak"),
+                           labels = c("Strong (valid)", "Weak (fallacious)"))
+    )
+  if (has_cond) {
+    filt <- filt %>%
+      mutate(condition = factor(condition, levels = c("control", "treatment"),
+                                labels = c("Control", "Treatment")))
+    summary_data <- filt %>%
+      group_by(strength, Consistency, condition)
+  } else {
+    summary_data <- filt %>%
+      group_by(strength, Consistency)
+  }
+
+  summary_data <- summary_data %>%
+    summarise(
+      mean_resp = mean(ResponseRecoded, na.rm = TRUE) * 100,
+      se        = sd(ResponseRecoded, na.rm = TRUE) / sqrt(n()) * 100,
+      .groups   = "drop"
+    ) %>%
+    mutate(
+      ci_lower = pmax(mean_resp - 1.96 * se, 0),
+      ci_upper = pmin(mean_resp + 1.96 * se, 100)
+    )
+
+  if (has_cond) {
+    pp_data <- filt %>%
+      group_by(rid, strength, Consistency, condition)
+  } else {
+    pp_data <- filt %>%
+      group_by(rid, strength, Consistency)
+  }
+  pp_data <- pp_data %>%
+    summarise(pp_mean = mean(ResponseRecoded, na.rm = TRUE) * 100,
+              .groups = "drop")
+
+  if (has_cond) {
+    n_ctrl <- dplyr::n_distinct(filt$rid[filt$condition == "Control"])
+    n_trt  <- dplyr::n_distinct(filt$rid[filt$condition == "Treatment"])
+    sub_txt <- sprintf("Control N = %d, Treatment N = %d", n_ctrl, n_trt)
+  } else {
+    sub_txt <- sprintf("N = %d", dplyr::n_distinct(filt$rid))
+  }
+
+  if (has_cond) {
+    p <- ggplot(summary_data, aes(x = Consistency, y = mean_resp,
+                                  fill = condition, color = condition)) +
+      geom_bar(stat = "identity", position = position_dodge(0.9),
+               width = 0.7, alpha = 0.85) +
+      geom_point(data = pp_data,
+                 aes(x = Consistency, y = pp_mean, group = condition),
+                 inherit.aes = FALSE,
+                 position = position_jitterdodge(jitter.width = 0.32,
+                                                 jitter.height = 2.5,
+                                                 dodge.width = 0.9,
+                                                 seed = 42),
+                 shape = 16, size = 0.6, alpha = 0.25, colour = "grey15") +
+      geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper),
+                    position = position_dodge(0.9), width = 0.2,
+                    color = "black") +
+      labs(fill = "Condition", color = "Condition")
+  } else {
+    p <- ggplot(summary_data, aes(x = Consistency, y = mean_resp,
+                                  fill = Consistency)) +
+      geom_bar(stat = "identity", width = 0.7, alpha = 0.85) +
+      geom_point(data = pp_data,
+                 aes(x = Consistency, y = pp_mean),
+                 inherit.aes = FALSE,
+                 position = position_jitter(width = 0.26, height = 2.5, seed = 42),
+                 shape = 16, size = 0.6, alpha = 0.25, colour = "grey15") +
+      geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper),
+                    width = 0.2, color = "black") +
+      guides(fill = "none")
+  }
+
+  p +
+    facet_wrap(~ strength) +
+    scale_y_continuous(breaks = seq(0, 100, 25)) +
+    coord_cartesian(ylim = c(-4, 104)) +
+    labs(
+      title    = plot_title,
+      subtitle = sub_txt,
+      x        = "Consistency to prior belief",
+      y        = "Perceived strength(%)"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "bottom",
+          plot.title    = element_text(hjust = 0.5),
+          plot.subtitle = element_text(hjust = 0.5, size = 9, colour = "grey30"))
+}
+
+save_fig_pdf <- function(plot_obj, filename, width, height, dpi = 300) {
+  if (!dir.exists("figures")) dir.create("figures", recursive = TRUE)
+  dev_fun <- if (isTRUE(capabilities("cairo"))) grDevices::cairo_pdf else grDevices::pdf
+  ggplot2::ggsave(
+    filename = file.path("figures", filename),
+    plot     = plot_obj,
+    width    = width, height = height, units = "in",
+    dpi      = dpi, device = dev_fun
+  )
+  invisible(file.path("figures", filename))
+}
+
+```
+
+
+<p class="figcap">Figure S5. Strength perception in Study 1 — Climate items, by participant subgroup.</p>
+
+```{r heterogeneity barplots S1, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=9}
+
+panels_s5 <- list(
+  make_het_barplot(study1_data[study1_data$partisanship_stat > 0, ], "Study 1 — Democrats"),
+  make_het_barplot(study1_data[study1_data$partisanship_stat < 0, ], "Study 1 — Republicans"),
+  make_het_barplot(study1_data[study1_data$prior < 0, ],            "Study 1 — Climate Skeptics"),
+  make_het_barplot(study1_data[study1_data$prior > 0, ],            "Study 1 — Climate Believers")
+)
+
+gridExtra::grid.arrange(grobs = panels_s5, ncol = 2)
+
+save_fig_pdf(gridExtra::arrangeGrob(grobs = panels_s5, ncol = 2),
+             "Figure_S5.pdf", width = 12, height = 9)
+
+```
+
+*Note.* The figures above show strength perception (mean percentage of Climate arguments judged "Strong") in Study 1, plotted by consistency to prior belief (x-axis) and argument quality (facets), separately for Democrats, Republicans, climate skeptics, and climate believers. The Democrat and Republican panels are defined at the participant level, but the climate-skeptic and climate-believer panels are defined at the *item* level: each argument is classified according to the participant's prior belief on the specific climate dimension that argument addresses (whether climate change is happening, whether it is anthropogenic, or whether it poses a risk). The same participant can therefore count as a believer for some items and a skeptic for others — for example, believing that climate change is happening (believer) but not that it is anthropogenic (skeptic) — and so contributes responses to both panels. Their Ns consequently do not sum to the total sample. Overlaid points are individual participants' mean responses within each cell (jittered horizontally, and slightly vertically, to reduce overplotting). Error bars are 95% confidence intervals. Sample size: *N* = 1195.
+
+
+<p class="figcap">Figure S6. Strength perception in Study 1 — Neutral items, by participant subgroup.</p>
+
+```{r heterogeneity barplots S1 neutral, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=4.5}
+
+gridExtra::grid.arrange(
+  make_het_barplot(study1_data[study1_data$partisanship_stat > 0, ], "Study 1 — Democrats",   item_type = "Neutral"),
+  make_het_barplot(study1_data[study1_data$partisanship_stat < 0, ], "Study 1 — Republicans", item_type = "Neutral"),
+  ncol = 2
+)
+
+```
+
+*Note.* The figures above show strength perception (mean percentage of Neutral arguments judged "Strong") in Study 1, plotted by consistency to prior belief (x-axis) and argument quality (facets), separately for Democrats and Republicans. Overlaid points are individual participants' mean responses within each cell (jittered horizontally, and slightly vertically, to reduce overplotting). Error bars are 95% confidence intervals. Sample size: *N* = 1195.
+
+
+## Study 2a: Identity-threatening context via contesting retweets
+
+```{r tables Study 2, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+#Model climate basic random effect
+model2 = fit_or_load("model2", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (1|rid)+ (1|unique_id), data = study2_data[study2_data$type=='Climate', ], family=binomial(), na.action=na.omit))
+
+
+#modeltreatment2a = glmer(ResponseRecoded ~ StrengthRecoded*scale(prior)*scale(partisanship_stat)*DirectionRecoded + (1|rid)+ (1|unique_id), data = study2_data[study2_data$type=='Climate'& study2_data$condition=="treatment", ], family=binomial(), na.action=na.omit)
+#modelmodelcontrol2a = glmer(ResponseRecoded ~ StrengthRecoded*scale(prior)*scale(partisanship_stat)*DirectionRecoded + (1|rid)+ (1|unique_id), data = study2_data[study2_data$type=='Climate'& study2_data$condition=="control", ], family=binomial(), na.action=na.omit)
+
+#modeltreatment2b = glmer(ResponseRecoded ~ StrengthRecoded*scale(prior)*scale(partisanship_stat)*DirectionRecoded + (1|rid)+ (1|unique_id), data = study2b_data[study2b_data$type=='Climate'& study2b_data$condition=="treatment", ], family=binomial(), na.action=na.omit)
+#modelmodelcontrol2b = glmer(ResponseRecoded ~ StrengthRecoded*scale(prior)*scale(partisanship_stat)*DirectionRecoded + (1|rid)+ (1|unique_id), data = study2b_data[study2b_data$type=='Climate'& study2b_data$condition=="control", ], family=binomial(), na.action=na.omit)
+
+#modelmodelcontrol1 = glmer(ResponseRecoded ~ StrengthRecoded*scale(prior)*scale(partisanship_stat)*DirectionRecoded + (1|rid)+ (1|unique_id), data = study1_data[study1_data$type=='Climate', ], family=binomial(), na.action=na.omit)
+
+#modeltreatment3 = glmer(ResponseRecoded ~ StrengthRecoded*scale(prior)*scale(partisanship_stat)*DirectionRecoded + (1|rid)+ (1|unique_id), data = study3_data[study3_data$type=='Climate'& study3_data$condition=="treatment", ], family=binomial(), na.action=na.omit)
+#modelmodelcontrol3 = glmer(ResponseRecoded ~ StrengthRecoded*scale(prior)*scale(partisanship_stat)*DirectionRecoded + (1|rid)+ (1|unique_id), data = study3_data[study3_data$type=='Climate'& study3_data$condition=="control", ], family=binomial(), na.action=na.omit)
+
+
+
+#Model climate full random effect
+model2_full = fit_or_load("model2_full", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat+condition|unique_id), data = study2_data[study2_data$type=='Climate', ],family=binomial(), na.action=na.omit))
+
+
+
+#Model neutral basic random effect
+model2_neutral = fit_or_load("model2_neutral", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (1|rid)+ (1|unique_id), data = study2_data[study2_data$type=='Neutral', ], family=binomial(), na.action=na.omit))
+
+
+#Model neutral all random effect
+model2_neutral_full = fit_or_load("model2_neutral_full", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat+condition|unique_id), data = study2_data[study2_data$type=='Neutral', ], family=binomial(), na.action=na.omit))
+
+
+
+style <- htmltools::tags$style(HTML("
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th, td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+  }
+  td:nth-child(2) {
+    padding-right: 30px;  /* Add more space between Estimate and Std. Error */
+  }
+"))
+
+# Define predictor labels
+pred_labels <- c(
+  "(Intercept)" = "Intercept",
+  "StrengthRecoded" = "Argument Quality",
+  "prior" = "Prior Beliefs",
+  "partisanship_stat" = "Partisan Identity",
+  "DirectionRecoded" = "Argument Direction",
+  "conditiontreatment" = "Treatment (vs. Control)",
+  "StrengthRecoded:prior" = "Argument Quality × Prior Beliefs",
+  "StrengthRecoded:partisanship_stat" = "Argument Quality × Partisan Identity",
+  "prior:partisanship_stat" = "Prior Beliefs × Partisan Identity",
+  "StrengthRecoded:DirectionRecoded" = "Argument Quality × Argument Direction",
+  "prior:DirectionRecoded" = "Prior Beliefs × Argument Direction",
+  "partisanship_stat:DirectionRecoded" = "Partisan Identity × Argument Direction",
+  "StrengthRecoded:conditiontreatment" = "Argument Quality × Treatment",
+  "prior:conditiontreatment" = "Prior Beliefs × Treatment",
+  "partisanship_stat:conditiontreatment" = "Partisan Identity × Treatment",
+  "DirectionRecoded:conditiontreatment" = "Argument Direction × Treatment",
+  "StrengthRecoded:prior:partisanship_stat" = "Argument Quality × Prior Beliefs × Partisan Identity",
+  "StrengthRecoded:prior:DirectionRecoded" = "Argument Quality × Prior Beliefs × Argument Direction",
+  "StrengthRecoded:partisanship_stat:DirectionRecoded" = "Argument Quality × Partisan Identity × Argument Direction",
+  "prior:partisanship_stat:DirectionRecoded" = "Prior Beliefs × Partisan Identity × Argument Direction",
+  "StrengthRecoded:prior:conditiontreatment" = "Argument Quality × Prior Beliefs × Treatment",
+  "StrengthRecoded:partisanship_stat:conditiontreatment" = "Argument Quality × Partisan Identity × Treatment",
+  "prior:partisanship_stat:conditiontreatment" = "Prior Beliefs × Partisan Identity × Treatment",
+  "StrengthRecoded:DirectionRecoded:conditiontreatment" = "Argument Quality × Argument Direction × Treatment",
+  "prior:DirectionRecoded:conditiontreatment" = "Prior Beliefs × Argument Direction × Treatment",
+  "partisanship_stat:DirectionRecoded:conditiontreatment" = "Partisan Identity × Argument Direction × Treatment",
+  "StrengthRecoded:prior:partisanship_stat:DirectionRecoded" = "Argument Quality × Prior Beliefs × Partisan Identity × Argument Direction",
+  "StrengthRecoded:prior:partisanship_stat:conditiontreatment" = "Argument Quality × Prior Beliefs × Partisan Identity × Treatment",
+  "StrengthRecoded:prior:DirectionRecoded:conditiontreatment" = "Argument Quality × Prior Beliefs × Argument Direction × Treatment",
+  "StrengthRecoded:partisanship_stat:DirectionRecoded:conditiontreatment" = "Argument Quality × Partisan Identity × Argument Direction × Treatment",
+  "prior:partisanship_stat:DirectionRecoded:conditiontreatment" = "Prior Beliefs × Partisan Identity × Argument Direction × Treatment",
+  "StrengthRecoded:prior:partisanship_stat:DirectionRecoded:conditiontreatment" = "Argument Quality × Prior Beliefs × Partisan Identity × Argument Direction × Treatment"
+)
+
+render_reg_table(model2,
+  "Table S6. Mixed Effects Logistic Regression Results for Study 2a, Climate Arguments.",
+  "Model includes random intercepts for participants and arguments.",
+  pred_labels)
+
+render_reg_table(model2_full,
+  "Table S7. Mixed Effects Logistic Regression with Maximal Random Effects for Study 2a, Climate Arguments.",
+  "Model includes random intercepts and slopes for Argument Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs, Partisan Identity and Treatment by arguments.",
+  pred_labels)
+
+render_reg_table(model2_neutral,
+  "Table S8. Mixed Effects Logistic Regression Results for Study 2a, Neutral Arguments.",
+  "Model includes random intercepts for participants and arguments.",
+  pred_labels)
+
+render_reg_table(model2_neutral_full,
+  "Table S9. Mixed Effects Logistic Regression with Maximal Random Effects for Study 2a, Neutral Arguments.",
+  "Model includes random intercepts and slopes for Argument Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs, Partisan Identity and Treatment by arguments.",
+  pred_labels)
+
+htmltools::browsable(style)
+
+
+
+
+```
+
+## Study 2b: Identity-threatening context via endorsing retweets
+
+```{r tables Study 2b, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+#Model climate basic random effect
+model2b = fit_or_load("model2b", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (1|rid)+ (1|unique_id), data = study2b_data[study2b_data$type=='Climate', ], family=binomial(), na.action=na.omit))
+
+#model for figure in paper
+#library(broom.mixed)
+
+#model2bpaper =  glmer(ResponseRecoded ~ StrengthRecoded*scale(prior)*scale(partisanship_stat)*DirectionRecoded + (1|rid)+ (1|unique_id), data = study3_data[study3_data$type=='Climate' & study3_data$condition=='control', ], family='binomial',  na.action=na.omit)
+
+#model2bpaper =  glmer(ResponseRecoded ~ StrengthRecoded*scale(prior)*scale(partisanship_stat)*DirectionRecoded + (1|rid)+ (1|unique_id), data = study1_data[study1_data$type=='Climate'], family='binomial',  na.action=na.omit)
+#summary(model2bpaper)
+
+
+#Model climate full random effect
+model2b_full = fit_or_load("model2b_full", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat+condition|unique_id), data = study2b_data[study2b_data$type=='Climate', ], family=binomial(), na.action=na.omit))
+
+
+#Model neutral basic random effect
+model2b_neutral = fit_or_load("model2b_neutral", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (1|rid)+ (1|unique_id), data = study2b_data[study2b_data$type=='Neutral', ], family=binomial(), na.action=na.omit))
+
+
+#Model neutral all random effect
+model2b_neutral_full = fit_or_load("model2b_neutral_full", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat+condition|unique_id), data = study2b_data[study2b_data$type=='Neutral', ], family=binomial(), na.action=na.omit))
+
+
+# pred_labels reused from the Study 2a chunk above (same model formula structure)
+
+render_reg_table(model2b,
+  "Table S10. Mixed Effects Logistic Regression Results for Study 2b, Climate Arguments.",
+  "Model includes random intercepts for participants and arguments.",
+  pred_labels)
+
+render_reg_table(model2b_full,
+  "Table S11. Mixed Effects Logistic Regression with Maximal Random Effects for Study 2b, Climate Arguments.",
+  "Model includes random intercepts and slopes for Argument Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs, Partisan Identity and Treatment by arguments.",
+  pred_labels)
+
+render_reg_table(model2b_neutral,
+  "Table S12. Mixed Effects Logistic Regression Results for Study 2b, Neutral Arguments.",
+  "Model includes random intercepts for participants and arguments.",
+  pred_labels)
+
+render_reg_table(model2b_neutral_full,
+  "Table S13. Mixed Effects Logistic Regression with Maximal Random Effects for Study 2b, Neutral Arguments.",
+  "Model includes random intercepts and slopes for Argument Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs, Partisan Identity and Treatment by arguments.",
+  pred_labels)
+
+```
+
+## Study 3: Logic-Salient context
+
+```{r tables Study 3,  echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+#Model climate basic random effect
+model3 = fit_or_load("model3", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (1|rid)+ (1|unique_id), data = study3_data[study3_data$type=='Climate', ], family=binomial(),   na.action=na.omit))
+
+#Model climate full random effect
+model3_full = fit_or_load("model3_full", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat+condition|unique_id), data = study3_data[study3_data$type=='Climate', ], family=binomial(),   na.action=na.omit))
+
+
+
+#Model neutral basic random effect
+model3_neutral = fit_or_load("model3_neutral", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (1|rid)+ (1|unique_id), data = study3_data[study3_data$type=='Neutral', ], family=binomial(),   na.action=na.omit))
+
+
+#Model neutral all random effect
+model3_neutral_full = fit_or_load("model3_neutral_full", glmer(ResponseRecoded ~ StrengthRecoded*prior*partisanship_stat*DirectionRecoded*condition + (StrengthRecoded+DirectionRecoded|rid)+ (prior+partisanship_stat+condition|unique_id), data = study3_data[study3_data$type=='Neutral', ], family=binomial(),  na.action=na.omit))
+
+
+
+style <- htmltools::tags$style(HTML("
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th, td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+  }
+  td:nth-child(2) {
+    padding-right: 30px;  /* Add more space between Estimate and Std. Error */
+  }
+"))
+
+# Define predictor labels
+pred_labels <- c(
+  "(Intercept)" = "Intercept",
+  "StrengthRecoded" = "Argument Quality",
+  "prior" = "Prior Beliefs",
+  "partisanship_stat" = "Partisan Identity",
+  "DirectionRecoded" = "Argument Direction",
+  "conditiontreatment" = "Treatment (vs. Control)",
+  "StrengthRecoded:prior" = "Argument Quality × Prior Beliefs",
+  "StrengthRecoded:partisanship_stat" = "Argument Quality × Partisan Identity",
+  "prior:partisanship_stat" = "Prior Beliefs × Partisan Identity",
+  "StrengthRecoded:DirectionRecoded" = "Argument Quality × Argument Direction",
+  "prior:DirectionRecoded" = "Prior Beliefs × Argument Direction",
+  "partisanship_stat:DirectionRecoded" = "Partisan Identity × Argument Direction",
+  "StrengthRecoded:conditiontreatment" = "Argument Quality × Treatment",
+  "prior:conditiontreatment" = "Prior Beliefs × Treatment",
+  "partisanship_stat:conditiontreatment" = "Partisan Identity × Treatment",
+  "DirectionRecoded:conditiontreatment" = "Argument Direction × Treatment",
+  "StrengthRecoded:prior:partisanship_stat" = "Argument Quality × Prior Beliefs × Partisan Identity",
+  "StrengthRecoded:prior:DirectionRecoded" = "Argument Quality × Prior Beliefs × Argument Direction",
+  "StrengthRecoded:partisanship_stat:DirectionRecoded" = "Argument Quality × Partisan Identity × Argument Direction",
+  "prior:partisanship_stat:DirectionRecoded" = "Prior Beliefs × Partisan Identity × Argument Direction",
+  "StrengthRecoded:prior:conditiontreatment" = "Argument Quality × Prior Beliefs × Treatment",
+  "StrengthRecoded:partisanship_stat:conditiontreatment" = "Argument Quality × Partisan Identity × Treatment",
+  "prior:partisanship_stat:conditiontreatment" = "Prior Beliefs × Partisan Identity × Treatment",
+  "StrengthRecoded:DirectionRecoded:conditiontreatment" = "Argument Quality × Argument Direction × Treatment",
+  "prior:DirectionRecoded:conditiontreatment" = "Prior Beliefs × Argument Direction × Treatment",
+  "partisanship_stat:DirectionRecoded:conditiontreatment" = "Partisan Identity × Argument Direction × Treatment",
+  "StrengthRecoded:prior:partisanship_stat:DirectionRecoded" = "Argument Quality × Prior Beliefs × Partisan Identity × Argument Direction",
+  "StrengthRecoded:prior:partisanship_stat:conditiontreatment" = "Argument Quality × Prior Beliefs × Partisan Identity × Treatment",
+  "StrengthRecoded:prior:DirectionRecoded:conditiontreatment" = "Argument Quality × Prior Beliefs × Argument Direction × Treatment",
+  "StrengthRecoded:partisanship_stat:DirectionRecoded:conditiontreatment" = "Argument Quality × Partisan Identity × Argument Direction × Treatment",
+  "prior:partisanship_stat:DirectionRecoded:conditiontreatment" = "Prior Beliefs × Partisan Identity × Argument Direction × Treatment",
+  "StrengthRecoded:prior:partisanship_stat:DirectionRecoded:conditiontreatment" = "Argument Quality × Prior Beliefs × Partisan Identity × Argument Direction × Treatment"
+)
+
+render_reg_table(model3,
+  "Table S14. Mixed Effects Logistic Regression Results for Study 3, Climate Arguments.",
+  "Model includes random intercepts for participants and arguments.",
+  pred_labels)
+
+render_reg_table(model3_full,
+  "Table S15. Mixed Effects Logistic Regression with Maximal Random Effects for Study 3, Climate Arguments.",
+  "Model includes random intercepts and slopes for Argument Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs, Partisan Identity and Treatment by arguments.",
+  pred_labels)
+
+render_reg_table(model3_neutral,
+  "Table S16. Mixed Effects Logistic Regression Results for Study 3, Neutral Arguments.",
+  "Model includes random intercepts for participants and arguments.",
+  pred_labels)
+
+render_reg_table(model3_neutral_full,
+  "Table S17. Mixed Effects Logistic Regression with Maximal Random Effects for Study 3, Neutral Arguments.",
+  "Model includes random intercepts and slopes for Argument Quality and Argument Direction by participants, and random intercepts and slopes for Prior Beliefs, Partisan Identity and Treatment by arguments.",
+  pred_labels)
+
+```
+
+
+
+
+
+## Study 2a and 2b effect heterogeneity over partisanship and prior beliefs
+
+We conducted several exploratory analyses to test whether the treatment effects were the same across prior beliefs (climate skeptics vs. climate believers), partisanship (Republicans vs. Democrats) and fallacy types. Note that the skeptic/believer split is defined at the item level rather than the participant level: each argument is classified according to the participant's prior belief on the specific climate dimension that argument addresses (happening, anthropogenic, or risk), so the same participant can count as a believer for some items and a skeptic for others — for example, believing that climate change is happening (believer) but not that it is anthropogenic (skeptic). The treatment's effect on evaluation was broadly consistent across these subgroups. Because prior-consistent arguments are anti-climate for skeptics but pro-climate for believers, the common shift away from prior-consistent positions appears as a treatment × argument direction interaction of opposite sign in the two groups; in both, it reflects downgrading of the prior-consistent arguments in Study 2a (skeptics $b = 0.74$, believers $b = -0.42$, both $p < .001$) and the corresponding shift in Study 2b (believers $b = -0.38, p < .001$; weaker and non-significant among skeptics, $b = -0.16, p = .341$). The effect held similarly across the political spectrum, reaching significance for both Republicans (Study 2a: $b = -0.35$; Study 2b: $b = -0.31$, both $p < .001$) and Democrats (Study 2a: $b = -0.30, p < .001$; Study 2b: $b = -0.23, p = .008$). Across fallacy types, we observe the same patterns as in the aggregate results (see Tables S32 and S33): perceived strength of strong arguments and of each individual fallacy type moved uniformly under treatment, downward in Study 2a, where the retweets contested the target argument, and upward in Study 2b, where the retweets endorsed the target argument.
+
+
+```{r heterogeneity identity threat 2a, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+model_s2a_cons <- fit_or_load("model_s2a_cons", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition +
+    (1 | rid) + (1 | unique_id),
+  data   = study2_data[study2_data$type == "Climate" & study2_data$Consistency == 'Consistent', ],
+  family = binomial(), na.action = na.omit
+))
+#summary(model_s2a_cons)
+model_s2a_inc <- fit_or_load("model_s2a_inc", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition +
+    (1 | rid) + (1 | unique_id),
+  data   = study2_data[study2_data$type == "Climate" & study2_data$Consistency == 'Inconsistent', ],
+  family = binomial(), na.action = na.omit
+))
+#summary(model_s2a_cons)
+
+
+# Republicans
+model_s2a_rep <- fit_or_load("model_s2a_rep", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition * DirectionRecoded +
+    (1 | rid) + (1 | unique_id),
+  data   = study2_data[study2_data$type == "Climate" & study2_data$partisanship_stat < 0, ],
+  family = binomial(), na.action = na.omit
+))
+render_het_table(model_s2a_rep, "Table S18", "Study 2a — Republicans")
+
+# Democrats
+model_s2a_dem <- fit_or_load("model_s2a_dem", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition * DirectionRecoded +
+    (1 | rid) + (1 | unique_id),
+  data   = study2_data[study2_data$type == "Climate" & study2_data$partisanship_stat > 0, ],
+  family = binomial(), na.action = na.omit
+))
+render_het_table(model_s2a_dem, "Table S19", "Study 2a — Democrats")
+
+# Climate skeptics
+model_s2a_skep <- fit_or_load("model_s2a_skep", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition * DirectionRecoded +
+    (1 | rid) + (1 | unique_id),
+  data   = study2_data[study2_data$type == "Climate" & study2_data$prior < 0.001, ],
+  family = binomial(), na.action = na.omit
+))
+render_het_table(model_s2a_skep, "Table S20", "Study 2a — Climate Skeptics")
+
+# Climate believers
+model_s2a_bel <- fit_or_load("model_s2a_bel", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition * DirectionRecoded +
+    (1 | rid) + (1 | unique_id),
+  data   = study2_data[study2_data$type == "Climate" & study2_data$prior > 0, ],
+  family = binomial(), na.action = na.omit
+))
+render_het_table(model_s2a_bel, "Table S21", "Study 2a — Climate Believers")
+
+```
+
+<p class="figcap">Figure S7. Strength perception in Study 2a — Climate items, by participant subgroup.</p>
+
+```{r heterogeneity barplots 2a, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=9}
+
+gridExtra::grid.arrange(
+  make_het_barplot(study2_data[study2_data$partisanship_stat > 0, ], "Study 2a — Democrats"),
+  make_het_barplot(study2_data[study2_data$partisanship_stat < 0, ], "Study 2a — Republicans"),
+  make_het_barplot(study2_data[study2_data$prior < 0, ],            "Study 2a — Climate Skeptics"),
+  make_het_barplot(study2_data[study2_data$prior > 0, ],            "Study 2a — Climate Believers"),
+  ncol = 2
+)
+
+```
+
+*Note.* The figures above show strength perception (mean percentage of Climate arguments judged "Strong") in Study 2a, plotted by consistency to prior belief (x-axis), experimental condition (fill/colour), and argument quality (facets), separately for Democrats, Republicans, climate skeptics, and climate believers. The Democrat and Republican panels are defined at the participant level, but the climate-skeptic and climate-believer panels are defined at the *item* level: each argument is classified according to the participant's prior belief on the specific climate dimension that argument addresses (whether climate change is happening, whether it is anthropogenic, or whether it poses a risk). The same participant can therefore count as a believer for some items and a skeptic for others — for example, believing that climate change is happening (believer) but not that it is anthropogenic (skeptic) — and so contributes responses to both panels. Their Ns consequently do not sum to the total sample. Overlaid points are individual participants' mean responses within each cell (jittered horizontally, and slightly vertically, to reduce overplotting). Error bars are 95% confidence intervals. Sample sizes: *N*~control~ = 469, *N*~treatment~ = 452.
+
+<p class="figcap">Figure S8. Strength perception in Study 2a — Neutral items.</p>
+
+```{r heterogeneity barplots 2a neutral, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4.5}
+
+print(make_het_barplot(study2_data, "Study 2a — Neutral Items", item_type = "Neutral"))
+
+```
+
+*Note.* The figure above shows strength perception (mean percentage of Neutral arguments judged "Strong") in Study 2a, plotted by consistency to prior belief (x-axis), experimental condition (fill/colour), and argument quality (facets), across all participants. Overlaid points are individual participants' mean responses within each cell (jittered horizontally, and slightly vertically, to reduce overplotting). Error bars are 95% confidence intervals. Sample sizes: *N*~control~ = 469, *N*~treatment~ = 452.
+
+```{r heterogeneity identity threat 2b, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+# Subgroup models for Study 2b (Climate items)
+#model_s2b_cons <- glmer(
+#  ResponseRecoded ~  condition +
+#    (1 | rid) + (1 | unique_id),
+#  data   = study2b_data[study2b_data$type == "Climate" & study2b_data$Consistency == 'Consistent', ],
+#  family = binomial(), na.action = na.omit
+#)
+#summary(model_s2b_cons)
+#model_s2b_inc <- glmer(
+#  ResponseRecoded ~  condition +
+#    (1 | rid) + (1 | unique_id),
+#  data   = study2b_data[study2b_data$type == "Climate" & study2b_data$Consistency == 'Inconsistent', ],
+#  family = binomial(), na.action = na.omit
+#)
+#summary(model_s2b_inc)
+
+# Republicans
+model_s2b_rep <- fit_or_load("model_s2b_rep", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition * DirectionRecoded +
+    (1 | rid) + (1 | unique_id),
+  data   = study2b_data[study2b_data$type == "Climate" & study2b_data$partisanship_stat < 0, ],
+  family = binomial(), na.action = na.omit
+))
+render_het_table(model_s2b_rep, "Table S22", "Study 2b — Republicans")
+
+# Democrats
+model_s2b_dem <- fit_or_load("model_s2b_dem", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition * DirectionRecoded +
+    (1 | rid) + (1 | unique_id),
+  data   = study2b_data[study2b_data$type == "Climate" & study2b_data$partisanship_stat > 0, ],
+  family = binomial(), na.action = na.omit
+))
+render_het_table(model_s2b_dem, "Table S23", "Study 2b — Democrats")
+
+# Climate skeptics
+model_s2b_skep <- fit_or_load("model_s2b_skep", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition * DirectionRecoded +
+    (1 | rid) + (1 | unique_id),
+  data   = study2b_data[study2b_data$type == "Climate" & study2b_data$prior < 0.001, ],
+  family = binomial(), na.action = na.omit
+))
+render_het_table(model_s2b_skep, "Table S24", "Study 2b — Climate Skeptics")
+
+# Climate believers
+model_s2b_bel <- fit_or_load("model_s2b_bel", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition * DirectionRecoded +
+    (1 | rid) + (1 | unique_id),
+  data   = study2b_data[study2b_data$type == "Climate" & study2b_data$prior > 0, ],
+  family = binomial(), na.action = na.omit
+))
+render_het_table(model_s2b_bel, "Table S25", "Study 2b — Climate Believers")
+
+```
+
+<p class="figcap">Figure S9. Strength perception in Study 2b — Climate items, by participant subgroup.</p>
+
+```{r heterogeneity barplots 2b, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=9}
+
+gridExtra::grid.arrange(
+  make_het_barplot(study2b_data[study2b_data$partisanship_stat > 0, ], "Study 2b — Democrats"),
+  make_het_barplot(study2b_data[study2b_data$partisanship_stat < 0, ], "Study 2b — Republicans"),
+  make_het_barplot(study2b_data[study2b_data$prior < 0, ],            "Study 2b — Climate Skeptics"),
+  make_het_barplot(study2b_data[study2b_data$prior > 0, ],            "Study 2b — Climate Believers"),
+  ncol = 2
+)
+
+```
+
+*Note.* The figures above show strength perception (mean percentage of Climate arguments judged "Strong") in Study 2b, plotted by consistency to prior belief (x-axis), experimental condition (fill/colour), and argument quality (facets), separately for Democrats, Republicans, climate skeptics, and climate believers. The Democrat and Republican panels are defined at the participant level, but the climate-skeptic and climate-believer panels are defined at the *item* level: each argument is classified according to the participant's prior belief on the specific climate dimension that argument addresses (whether climate change is happening, whether it is anthropogenic, or whether it poses a risk). The same participant can therefore count as a believer for some items and a skeptic for others — for example, believing that climate change is happening (believer) but not that it is anthropogenic (skeptic) — and so contributes responses to both panels. Their Ns consequently do not sum to the total sample. Overlaid points are individual participants' mean responses within each cell (jittered horizontally, and slightly vertically, to reduce overplotting). Error bars are 95% confidence intervals. Sample sizes: *N*~control~ = 514, *N*~treatment~ = 489.
+
+<p class="figcap">Figure S10. Strength perception in Study 2b — Neutral items.</p>
+
+```{r heterogeneity barplots 2b neutral, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4.5}
+
+print(make_het_barplot(study2b_data, "Study 2b — Neutral Items", item_type = "Neutral"))
+
+```
+
+*Note.* The figure above shows strength perception (mean percentage of Neutral arguments judged "Strong") in Study 2b, plotted by consistency to prior belief (x-axis), experimental condition (fill/colour), and argument quality (facets), across all participants. Overlaid points are individual participants' mean responses within each cell (jittered horizontally, and slightly vertically, to reduce overplotting). Error bars are 95% confidence intervals. Sample sizes: *N*~control~ = 514, *N*~treatment~ = 489.
+
+
+
+### Simple effects: treatment effect within each (partisan identity × argument direction) cell (Studies 2a and 2b)
+
+```{r simple effects treatment within partisan x direction cells, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+
+fit_tx_cell <- function(d, model_id) {
+  tryCatch({
+    m <- fit_or_load(model_id, lme4::glmer(
+      ResponseRecoded ~ condition + (1 | rid) + (1 | unique_id),
+      data   = d,
+      family = binomial(),
+      na.action = na.omit
+    ))
+    co <- summary(m)$coefficients
+    if ("conditiontreatment" %in% rownames(co)) {
+      list(b  = co["conditiontreatment", "Estimate"],
+           se = co["conditiontreatment", "Std. Error"],
+           p  = co["conditiontreatment", ncol(co)])
+    } else {
+      list(b = NA_real_, se = NA_real_, p = NA_real_)
+    }
+  }, error = function(e) list(b = NA_real_, se = NA_real_, p = NA_real_))
+}
+
+fmt_p_cell <- function(p) ifelse(is.na(p), "—",
+                                 ifelse(p < .001, "< 0.001", sprintf("%.3f", p)))
+
+cell_row <- function(d_full, partisan_filter, direction_value, label, model_id) {
+  d <- d_full %>%
+    dplyr::filter(type == "Climate",
+                  !is.na(partisanship_stat), !is.na(direction),
+                  !is.na(condition), !is.na(ResponseRecoded),
+                  partisan_filter(partisanship_stat),
+                  direction == direction_value)
+
+  ctrl_mean <- mean(d$ResponseRecoded[d$condition == "control"],   na.rm = TRUE) * 100
+  tx_mean   <- mean(d$ResponseRecoded[d$condition == "treatment"], na.rm = TRUE) * 100
+  diff_pp   <- tx_mean - ctrl_mean
+  res       <- fit_tx_cell(d, model_id)
+
+  data.frame(
+    Subgroup   = label,
+    Control    = sprintf("%.1f", ctrl_mean),
+    Treatment  = sprintf("%.1f", tx_mean),
+    Difference = sprintf("%+.1f", diff_pp),
+    Beta       = ifelse(is.na(res$b),  "—", sprintf("%+.3f", res$b)),
+    SE         = ifelse(is.na(res$se), "—", sprintf("%.3f",  res$se)),
+    p          = fmt_p_cell(res$p),
+    OR         = ifelse(is.na(res$b),  "—", sprintf("%.3f",  exp(res$b))),
+    N          = length(unique(d$rid)),
+    row.names  = NULL, check.names = FALSE, stringsAsFactors = FALSE
+  )
+}
+
+is_rep <- function(x) x < 0
+is_dem <- function(x) x > 0
+
+cells_tbl <- dplyr::bind_rows(
+  # Study 2a — 4 cells
+  cell_row(study2_data,  is_rep, "Contra/Nonrisky", "Republicans × Contra/Non-risky", "model_tx_2a_rep_contra"),
+  cell_row(study2_data,  is_rep, "Pro/Risky",       "Republicans × Pro/Risky",       "model_tx_2a_rep_pro"),
+  cell_row(study2_data,  is_dem, "Contra/Nonrisky", "Democrats × Contra/Non-risky",   "model_tx_2a_dem_contra"),
+  cell_row(study2_data,  is_dem, "Pro/Risky",       "Democrats × Pro/Risky",          "model_tx_2a_dem_pro"),
+  # Study 2b — 4 cells
+  cell_row(study2b_data, is_rep, "Contra/Nonrisky", "Republicans × Contra/Non-risky", "model_tx_2b_rep_contra"),
+  cell_row(study2b_data, is_rep, "Pro/Risky",       "Republicans × Pro/Risky",       "model_tx_2b_rep_pro"),
+  cell_row(study2b_data, is_dem, "Contra/Nonrisky", "Democrats × Contra/Non-risky",   "model_tx_2b_dem_contra"),
+  cell_row(study2b_data, is_dem, "Pro/Risky",       "Democrats × Pro/Risky",          "model_tx_2b_dem_pro")
+)
+
+kbl(
+  cells_tbl,
+  caption  = paste0("<span style='color:black; font-weight:bold;'>",
+                    "Table S26. Simple effects: Treatment vs. Control within each ",
+                    "(partisan identity × argument direction) cell, Studies 2a and 2b ",
+                    "(Climate items).</span>"),
+  col.names = c("Subgroup",
+                "Control", "Treatment", "Difference (Tx − Ctrl)",
+                "Beta", "SE", "p", "Odds Ratio", "N participants"),
+  align    = c("l", rep("r", 8)),
+  booktabs = TRUE, escape = FALSE, row.names = FALSE
+) %>%
+  kable_styling(full_width = FALSE, position = "left",
+                bootstrap_options = c("striped", "hover", "condensed")) %>%
+  add_header_above(c(" " = 1,
+                     "Mean % 'Strong' judgments" = 3,
+                     "Mixed-effects logistic regression" = 4,
+                     " " = 1)) %>%
+  pack_rows("Study 2a", 1, 4, bold = TRUE) %>%
+  pack_rows("Study 2b", 5, 8, bold = TRUE) %>%
+  footnote(
+    general = paste0(
+      "Each row decomposes a single (partisan identity × argument direction) cell ",
+      "of the Climate items. The 'Control' and 'Treatment' columns are the raw mean ",
+      "percentage of arguments judged 'Strong' within that cell; 'Difference ",
+      "(Tx − Ctrl)' is their raw difference in percentage points. ",
+      "Beta is the conditiontreatment main effect from a cell-specific mixed-effects ",
+      "logistic regression: ResponseRecoded ~ condition + (1|rid) + (1|unique_id), ",
+      "binomial logit. SE and p are clustering-adjusted via the random intercepts ",
+      "for participants and items."
+    ),
+    general_title    = "Note.",
+    footnote_as_chunk = TRUE,
+    threeparttable   = TRUE
+  ) %>%
+  print()
+
+cat('<div class="page-break"></div>')
+
+```
+
+
+## Study 3 effect heterogeneity over partisanship and prior beliefs
+
+```{r heterogeneity for logic warnings, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+model_s3_rep <- fit_or_load("model_s3_rep", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition * DirectionRecoded +
+    (1 | rid) + (1 | unique_id),
+  data   = study3_data[study3_data$type == "Climate" & study3_data$partisanship_stat < 0, ],
+  family = binomial(), na.action = na.omit
+))
+render_het_table(model_s3_rep, "Table S27", "Study 3 — Republicans")
+
+model_s3_dem <- fit_or_load("model_s3_dem", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition * DirectionRecoded +
+    (1 | rid) + (1 | unique_id),
+  data   = study3_data[study3_data$type == "Climate" & study3_data$partisanship_stat > 0, ],
+  family = binomial(), na.action = na.omit
+))
+render_het_table(model_s3_dem, "Table S28", "Study 3 — Democrats")
+
+model_s3_skep <- fit_or_load("model_s3_skep", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition * DirectionRecoded +
+    (1 | rid) + (1 | unique_id),
+  data   = study3_data[study3_data$type == "Climate" & study3_data$prior < 0.001, ],
+  family = binomial(), na.action = na.omit
+))
+render_het_table(model_s3_skep, "Table S29", "Study 3 — Climate Skeptics")
+
+model_s3_bel <- fit_or_load("model_s3_bel", glmer(
+  ResponseRecoded ~ StrengthRecoded * condition * DirectionRecoded +
+    (1 | rid) + (1 | unique_id),
+  data   = study3_data[study3_data$type == "Climate" & study3_data$prior > 0, ],
+  family = binomial(), na.action = na.omit
+))
+render_het_table(model_s3_bel, "Table S30", "Study 3 — Climate Believers")
+
+```
+
+<p class="figcap">Figure S11. Strength perception in Study 3 — Climate items, by participant subgroup.</p>
+
+```{r heterogeneity barplots S3, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=9}
+
+panels_s11 <- list(
+  make_het_barplot(study3_data[study3_data$partisanship_stat > 0, ], "Study 3 — Democrats"),
+  make_het_barplot(study3_data[study3_data$partisanship_stat < 0, ], "Study 3 — Republicans"),
+  make_het_barplot(study3_data[study3_data$prior < 0, ],            "Study 3 — Climate Skeptics"),
+  make_het_barplot(study3_data[study3_data$prior > 0, ],            "Study 3 — Climate Believers")
+)
+
+gridExtra::grid.arrange(grobs = panels_s11, ncol = 2)
+
+save_fig_pdf(gridExtra::arrangeGrob(grobs = panels_s11, ncol = 2),
+             "Figure_S11.pdf", width = 12, height = 9)
+
+```
+
+*Note.* The figures above show strength perception (mean percentage of Climate arguments judged "Strong") in Study 3, plotted by consistency to prior belief (x-axis), experimental condition (fill/colour), and argument quality (facets), separately for Democrats, Republicans, climate skeptics, and climate believers. The Democrat and Republican panels are defined at the participant level, but the climate-skeptic and climate-believer panels are defined at the *item* level: each argument is classified according to the participant's prior belief on the specific climate dimension that argument addresses (whether climate change is happening, whether it is anthropogenic, or whether it poses a risk). The same participant can therefore count as a believer for some items and a skeptic for others — for example, believing that climate change is happening (believer) but not that it is anthropogenic (skeptic) — and so contributes responses to both panels. Their Ns consequently do not sum to the total sample. Overlaid points are individual participants' mean responses within each cell (jittered horizontally, and slightly vertically, to reduce overplotting). Error bars are 95% confidence intervals. Sample sizes: *N*~control~ = 546, *N*~treatment~ = 514.
+
+<p class="figcap">Figure S12. Strength perception in Study 3 — Neutral items.</p>
+
+```{r heterogeneity barplots S3 neutral, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4.5}
+
+fig_s12 <- make_het_barplot(study3_data, "Study 3 — Neutral Items", item_type = "Neutral")
+
+print(fig_s12)
+
+save_fig_pdf(fig_s12, "Figure_S12.pdf", width = 8, height = 4.5)
+
+```
+
+*Note.* The figure above shows strength perception (mean percentage of Neutral arguments judged "Strong") in Study 3, plotted by consistency to prior belief (x-axis), experimental condition (fill/colour), and argument quality (facets), across all participants. Overlaid points are individual participants' mean responses within each cell (jittered horizontally, and slightly vertically, to reduce overplotting). Error bars are 95% confidence intervals. Sample sizes: *N*~control~ = 546, *N*~treatment~ = 514.
+
+
+### Study 3 — treatment effect by demographic subgroup (Climate items)
+
+```{r study 3 demographic heterogeneity, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+
+pick_best_col <- function(d, candidates) {
+  candidates <- intersect(candidates, names(d))
+  if (length(candidates) == 0) return(NULL)
+  best  <- candidates[1]
+  best_n <- -1L
+  for (cn in candidates) {
+    nn <- d %>% dplyr::distinct(rid, .data[[cn]]) %>%
+      dplyr::pull(.data[[cn]])
+    n  <- sum(!is.na(nn) & nn != "" & nn != " ")
+    if (n > best_n) { best <- cn; best_n <- n }
+  }
+  best
+}
+
+gender_col <- pick_best_col(study3_data, c("Gender", "gender", "Gender.1", "gender.1"))
+age_col    <- pick_best_col(study3_data, c("age", "age.1", "Age"))
+edu_col    <- pick_best_col(study3_data, c("education", "education.1", "Education"))
+
+demo_pp <- study3_data %>%
+  dplyr::filter(type == "Climate") %>%
+  dplyr::group_by(rid) %>%
+  dplyr::summarise(
+    Gender_raw = dplyr::first(.data[[gender_col]]),
+    age_raw    = suppressWarnings(as.numeric(dplyr::first(.data[[age_col]]))),
+    edu_raw    = dplyr::first(.data[[edu_col]]),
+    .groups    = "drop"
+  )
+
+
+age_median <- stats::median(demo_pp$age_raw, na.rm = TRUE)
+
+is_college_plus <- function(x) {
+  num <- suppressWarnings(as.numeric(x))
+  txt <- toupper(as.character(x))
+  num_ge5 <- !is.na(num) & num >= 5
+  txt_hit <- grepl("BACHELOR|MASTER|DOCTOR|PROFESSIONAL|PHD|MBA|\\bMD\\b|\\bJD\\b|GRADUATE\\s+DEGREE",
+                   txt)
+  num_ge5 | txt_hit
+}
+
+demo_pp <- demo_pp %>%
+  dplyr::mutate(
+    Gender_grp = dplyr::case_when(
+      grepl("^F", Gender_raw, ignore.case = TRUE) ~ "Female",
+      grepl("^M", Gender_raw, ignore.case = TRUE) ~ "Male",
+      TRUE                                        ~ NA_character_
+    ),
+    Age_grp = dplyr::case_when(
+      is.na(age_raw)         ~ NA_character_,
+      age_raw <  age_median  ~ paste0("Younger (< ", age_median, ")"),
+      age_raw >= age_median  ~ paste0("Older (≥ ", age_median, ")"),
+      TRUE                   ~ NA_character_
+    ),
+    Edu_grp = dplyr::case_when(
+      is.na(edu_raw) | edu_raw == "" ~ NA_character_,
+      is_college_plus(edu_raw)       ~ "College or higher (Bachelor's+)",
+      TRUE                           ~ "Lower than college (no Bachelor's)"
+    )
+  )
+
+strong_long <- study3_data %>%
+  dplyr::filter(type == "Climate",
+                !is.na(condition), !is.na(strength),
+                !is.na(ResponseRecoded)) %>%
+  dplyr::inner_join(demo_pp %>% dplyr::select(rid, Gender_grp, Age_grp, Edu_grp),
+                    by = "rid")
+
+fit_qxt_interaction <- function(d, model_id) {
+  tryCatch({
+    m <- fit_or_load(model_id, lme4::glmer(
+      ResponseRecoded ~ StrengthRecoded * condition + (1 | rid) + (1 | unique_id),
+      data   = d,
+      family = binomial(),
+      na.action = na.omit
+    ))
+    co <- summary(m)$coefficients
+    if ("StrengthRecoded:conditiontreatment" %in% rownames(co)) {
+      list(b = co["StrengthRecoded:conditiontreatment", "Estimate"],
+           p = co["StrengthRecoded:conditiontreatment", ncol(co)])
+    } else {
+      list(b = NA_real_, p = NA_real_)
+    }
+  }, error = function(e) list(b = NA_real_, p = NA_real_))
+}
+
+fmt_p <- function(p) ifelse(is.na(p), "—",
+                            ifelse(p < .001, "< 0.001", sprintf("%.3f", p)))
+
+subgroup_row <- function(d, subgroup_label, model_id) {
+  s <- d %>%
+    dplyr::mutate(condition = factor(condition, levels = c("control", "treatment")),
+                  strength  = factor(strength,  levels = c("Strong", "Weak"))) %>%
+    dplyr::group_by(strength, condition) %>%
+    dplyr::summarise(m = mean(ResponseRecoded, na.rm = TRUE) * 100, .groups = "drop")
+
+  pull <- function(str_lvl, cond_lvl) {
+    v <- s$m[s$strength == str_lvl & s$condition == cond_lvl]
+    if (length(v) == 0 || is.na(v)) NA_real_ else v
+  }
+  s_ctrl <- pull("Strong", "control");    s_tx <- pull("Strong", "treatment")
+  w_ctrl <- pull("Weak",   "control");    w_tx <- pull("Weak",   "treatment")
+  n_pp   <- length(unique(d$rid))
+
+  mi <- fit_qxt_interaction(d, model_id)
+
+  data.frame(
+    Subgroup     = subgroup_label,
+    N            = n_pp,
+    Strong_ctrl  = sprintf("%.1f", s_ctrl),
+    Strong_tx    = sprintf("%.1f", s_tx),
+    Strong_diff  = sprintf("%+.1f", s_tx - s_ctrl),
+    Weak_ctrl    = sprintf("%.1f", w_ctrl),
+    Weak_tx      = sprintf("%.1f", w_tx),
+    Weak_diff    = sprintf("%+.1f", w_tx - w_ctrl),
+    Int_b        = ifelse(is.na(mi$b), "—", sprintf("%+.3f", mi$b)),
+    Int_p        = fmt_p(mi$p),
+    row.names    = NULL, check.names = FALSE, stringsAsFactors = FALSE
+  )
+}
+
+rows <- list()
+
+
+for (g in c("Female", "Male")) {
+  d <- strong_long %>% dplyr::filter(Gender_grp == g)
+  if (nrow(d) > 0)
+    rows[[length(rows) + 1]] <- subgroup_row(d, g,
+                                             paste0("model_s3_demo_gender_", tolower(g)))
+}
+# Age (Younger first, Older second)
+for (lvl in sort(unique(stats::na.omit(strong_long$Age_grp)))) {
+  d <- strong_long %>% dplyr::filter(Age_grp == lvl)
+  if (nrow(d) > 0) {
+    age_tag <- if (grepl("Younger", lvl)) "younger" else "older"
+    rows[[length(rows) + 1]] <- subgroup_row(d, lvl,
+                                             paste0("model_s3_demo_age_", age_tag))
+  }
+}
+for (e in c("College or higher (Bachelor's+)", "Lower than college (no Bachelor's)")) {
+  d <- strong_long %>% dplyr::filter(Edu_grp == e)
+  if (nrow(d) > 0) {
+    edu_tag <- if (grepl("College or higher", e)) "collegeplus" else "subcollege"
+    rows[[length(rows) + 1]] <- subgroup_row(d, e,
+                                             paste0("model_s3_demo_edu_", edu_tag))
+  }
+}
+
+demo_tbl <- do.call(rbind, rows)
+
+kbl(
+  demo_tbl,
+  caption  = paste0("<span style='color:black; font-weight:bold;'>",
+                    "Table S31. Study 3 — average treatment effect on judging arguments as ",
+                    "'Strong' (Climate items), broken out by demographic subgroup.</span>"),
+  col.names = c("Subgroup", "N",
+                "Control", "Treatment", "Difference",
+                "Control", "Treatment", "Difference",
+                "β", "p"),
+  align    = c("l", "r", rep("r", 8)),
+  booktabs = TRUE, escape = FALSE, row.names = FALSE
+) %>%
+  kable_styling(full_width = FALSE, position = "left",
+                bootstrap_options = c("striped", "hover", "condensed")) %>%
+  add_header_above(c(" " = 2,
+                     "Strong arguments (% 'Strong')" = 3,
+                     "Weak arguments (% 'Strong')" = 3,
+                     "Argument Quality × Treatment" = 2)) %>%
+  pack_rows("Gender",    1, 2, bold = TRUE) %>%
+  pack_rows("Age (median split)",  3, 4, bold = TRUE) %>%
+  pack_rows("Education", 5, 6, bold = TRUE) %>%
+  footnote(
+    general = paste0(
+      "Cells in the 'Control' and 'Treatment' columns are the raw % of arguments ",
+      "judged 'Strong' within that subgroup. 'Difference' is Treatment - Control ",
+      "in percentage points (a negative value on the Weak side means the logical-",
+      "warning treatment lowered the rate at which weak arguments were judged 'Strong', ",
+      "which is Study 3's expected pattern). N is the number of unique participants. ",
+      "The 'Argument Quality × Treatment' columns report the within-subgroup ",
+      "interaction coefficient (Beta) and p-value from a mixed-effects logistic ",
+      "regression ResponseRecoded ~ StrengthRecoded * condition + (1|rid) + ",
+      "(1|unique_id), fit on the Climate items in that subgroup. A positive, ",
+      "significant Beta means the treatment widened the gap between Strong and ",
+      "Weak arguments within that subgroup (i.e., improved discrimination), which ",
+      "is Study 3's predicted pattern. Subgroup definitions: Gender = self-reported ",
+      "Female / Male (other / missing excluded). Age = median split on the numeric ",
+      "age variable. Education = 'College or higher' means the participant reported ",
+      "at least a 4-year Bachelor's degree (Bachelor's, Master's, Doctoral, or ",
+      "Professional degree); 'Lower than college' covers less than high school, ",
+      "high-school graduate, some college without a degree, and Associate's (2-year) ",
+      "degree."
+    ),
+    general_title    = "Note.",
+    footnote_as_chunk = TRUE,
+    threeparttable   = TRUE
+  ) %>%
+  print()
+
+cat('<div class="page-break"></div>')
+
+```
+
+
+## Average perceived strength per fallacy type and per condition
+
+```{r Study 1-3 fallacy means by condition, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+
+args_json <- fromJSON("arguments_augmented.json")
+arg_type_lookup <- args_json %>%
+  select(argumentNumber, type) %>%
+  rename(unique_id = argumentNumber, arg_type = type)
+
+fallacy_levels <- c(
+  "Strong",
+  "Post Hoc Ergo Propter Hoc",
+  "Overgeneralization",
+  "Affirming the Consequent",
+  "Denying the Antecedent"
+)
+
+add_fallacy_cat <- function(d) {
+  d %>%
+    left_join(arg_type_lookup, by = "unique_id") %>%
+    mutate(
+      fallacy_cat = case_when(
+        strength == "Strong"                    ~ "Strong",
+        arg_type == "post hoc ergo propter hoc" ~ "Post Hoc Ergo Propter Hoc",
+        arg_type == "overgeneralization"        ~ "Overgeneralization",
+        arg_type == "affirming the consequent"  ~ "Affirming the Consequent",
+        arg_type == "denying the antecedent"    ~ "Denying the Antecedent",
+        TRUE                                    ~ NA_character_
+      ),
+      fallacy_cat = factor(fallacy_cat, levels = fallacy_levels)
+    )
+}
+
+summarise_row <- function(d, item_type, row_label, cond_filter = NULL) {
+  out <- d %>%
+    filter(type == item_type, !is.na(fallacy_cat), !is.na(ResponseRecoded))
+  if (!is.null(cond_filter)) {
+    out <- out %>% filter(condition == cond_filter)
+  }
+  out %>%
+    group_by(fallacy_cat) %>%
+    summarise(
+      cell = sprintf("%.3f (%.3f)",
+                     mean(ResponseRecoded, na.rm = TRUE),
+                     sd(ResponseRecoded, na.rm = TRUE)),
+      .groups = "drop"
+    ) %>%
+    tidyr::pivot_wider(names_from = fallacy_cat, values_from = cell) %>%
+    mutate(Condition = row_label, .before = 1)
+}
+
+s1_fc  <- add_fallacy_cat(study1_data)
+s2_fc  <- add_fallacy_cat(study2_data)
+s2b_fc <- add_fallacy_cat(study2b_data)
+s3_fc  <- add_fallacy_cat(study3_data)
+
+make_combined_table <- function(item_type, table_label, caption_text) {
+
+  rows <- bind_rows(
+    summarise_row(s1_fc,  item_type, "Overall"),                              # Study 1: no condition
+    summarise_row(s2_fc,  item_type, "Control",   cond_filter = "control"),
+    summarise_row(s2_fc,  item_type, "Treatment", cond_filter = "treatment"),
+    summarise_row(s2b_fc, item_type, "Control",   cond_filter = "control"),
+    summarise_row(s2b_fc, item_type, "Treatment", cond_filter = "treatment"),
+    summarise_row(s3_fc,  item_type, "Control",   cond_filter = "control"),
+    summarise_row(s3_fc,  item_type, "Treatment", cond_filter = "treatment")
+  )
+
+  for (lvl in fallacy_levels) {
+    if (!lvl %in% names(rows)) rows[[lvl]] <- NA_character_
+  }
+  rows <- rows[, c("Condition", fallacy_levels)]
+
+  rows[] <- lapply(rows, function(x) ifelse(is.na(x), "—", as.character(x)))
+
+  display_names <- c(
+    "Strong",
+    "Post Hoc",
+    "Overgeneralization",
+    "Affirming the Consequent",
+    "Denying the Antecedent"
+  )
+
+  kbl(
+    rows,
+    caption  = paste0("<span style='color:black; font-weight:bold;'>",
+                      table_label, ". ", caption_text, "</span>"),
+    align    = c("l", rep("c", length(fallacy_levels))),
+    booktabs = TRUE,
+    escape   = FALSE,
+    col.names = c("", display_names)
+  ) %>%
+    kable_styling(
+      full_width        = FALSE,
+      position          = "left",
+      bootstrap_options = c("striped", "hover", "condensed"),
+      latex_options     = c("hold_position", "scale_down")
+    ) %>%
+    add_header_above(c(" " = 1, "Argument Type" = length(fallacy_levels))) %>%
+    pack_rows("Study 1",  1, 1, bold = TRUE, italic = FALSE) %>%
+    pack_rows("Study 2a", 2, 3, bold = TRUE, italic = FALSE) %>%
+    pack_rows("Study 2b", 4, 5, bold = TRUE, italic = FALSE) %>%
+    pack_rows("Study 3",  6, 7, bold = TRUE, italic = FALSE) %>%
+    footnote(
+      general = paste0(
+        "Cells show M (SD) of ResponseRecoded (1 = judged Strong, 0 = judged Weak). ",
+        "The 'Strong' column pools all ", tolower(item_type),
+        " arguments without an argumentative fallacy; the four fallacy columns are weak ",
+        tolower(item_type), " arguments classified by error type. ",
+        "Study 1 had no treatment manipulation; Studies 2a, 2b, and 3 are split by ",
+        "experimental condition (Control vs. Treatment)."
+      ),
+      general_title    = "Note.",
+      footnote_as_chunk = TRUE,
+      threeparttable   = TRUE
+    ) %>%
+    print()
+
+  cat('<div class="page-break"></div>')
+}
+
+# Table S14: Climate items
+make_combined_table(
+  item_type    = "Climate",
+  table_label  = "Table S32",
+  caption_text = paste0(
+    "Mean (SD) Perceived Strength (Proportion of 'Strong' Judgments) for ",
+    "Climate Arguments by Study, Condition, and Argument Type."
+  )
+)
+
+make_combined_table(
+  item_type    = "Neutral",
+  table_label  = "Table S33",
+  caption_text = paste0(
+    "Mean (SD) Perceived Strength (Proportion of 'Strong' Judgments) for ",
+    "Neutral Arguments by Study, Condition, and Argument Type."
+  )
+)
+
+
+fit_tx_fallacy <- function(d, model_id) {
+  tryCatch({
+    m <- fit_or_load(model_id, lme4::glmer(
+      ResponseRecoded ~ condition + (1 | rid) + (1 | unique_id),
+      data   = d,
+      family = binomial(),
+      na.action = na.omit
+    ))
+    co <- summary(m)$coefficients
+    if ("conditiontreatment" %in% rownames(co)) {
+      list(b  = co["conditiontreatment", "Estimate"],
+           se = co["conditiontreatment", "Std. Error"],
+           p  = co["conditiontreatment", ncol(co)])
+    } else {
+      list(b = NA_real_, se = NA_real_, p = NA_real_)
+    }
+  }, error = function(e) list(b = NA_real_, se = NA_real_, p = NA_real_))
+}
+
+fmt_p_fal <- function(p) ifelse(is.na(p), "—",
+                                ifelse(p < .001, "< 0.001", sprintf("%.3f", p)))
+
+fallacy_label_to_tag <- c(
+  "Strong"                     = "strong",
+  "Post Hoc Ergo Propter Hoc"  = "posthoc",
+  "Overgeneralization"         = "overgen",
+  "Affirming the Consequent"   = "affirm",
+  "Denying the Antecedent"     = "denying"
+)
+
+fallacy_tx_row <- function(d_aug, item_type, fallacy_level, study_tag, item_tag) {
+  d_cell <- d_aug %>%
+    dplyr::filter(type == item_type,
+                  fallacy_cat == fallacy_level,
+                  !is.na(condition),
+                  !is.na(ResponseRecoded))
+
+  n_pp <- length(unique(d_cell$rid))
+
+  if (nrow(d_cell) == 0 ||
+      length(unique(d_cell$condition[d_cell$condition %in% c("control", "treatment")])) < 2) {
+    return(data.frame(
+      Subgroup = as.character(fallacy_level),
+      Beta = "—", SE = "—", p = "—", OR = "—",
+      row.names = NULL, check.names = FALSE, stringsAsFactors = FALSE
+    ))
+  }
+
+  fal_tag  <- fallacy_label_to_tag[[as.character(fallacy_level)]]
+  model_id <- paste0("model_fx_", study_tag, "_", item_tag, "_", fal_tag)
+  res      <- fit_tx_fallacy(d_cell, model_id)
+
+  data.frame(
+    Subgroup = as.character(fallacy_level),
+    Beta     = ifelse(is.na(res$b),  "—", sprintf("%+.3f", res$b)),
+    SE       = ifelse(is.na(res$se), "—", sprintf("%.3f",  res$se)),
+    p        = fmt_p_fal(res$p),
+    OR       = ifelse(is.na(res$b),  "—", sprintf("%.3f",  exp(res$b))),
+    row.names = NULL, check.names = FALSE, stringsAsFactors = FALSE
+  )
+}
+
+build_fallacy_analyses_table <- function(item_type, item_tag, table_label, item_label) {
+
+  rows <- list()
+  for (lvl in fallacy_levels) rows[[length(rows) + 1]] <- fallacy_tx_row(s2_fc,  item_type, lvl, "2a", item_tag)
+  for (lvl in fallacy_levels) rows[[length(rows) + 1]] <- fallacy_tx_row(s2b_fc, item_type, lvl, "2b", item_tag)
+  for (lvl in fallacy_levels) rows[[length(rows) + 1]] <- fallacy_tx_row(s3_fc,  item_type, lvl, "s3", item_tag)
+  analyses_tbl <- do.call(rbind, rows)
+
+  kbl(
+    analyses_tbl,
+    caption  = paste0("<span style='color:black; font-weight:bold;'>",
+                      table_label, ". Treatment vs. Control simple-effects analyses ",
+                      "for each argument type within each study, ",
+                      item_label, " items.</span>"),
+    col.names = c("Argument Type", "Beta", "SE", "p", "Odds Ratio"),
+    align    = c("l", "r", "r", "r", "r"),
+    booktabs = TRUE, escape = FALSE, row.names = FALSE
+  ) %>%
+    kable_styling(full_width = FALSE, position = "left",
+                  bootstrap_options = c("striped", "hover", "condensed")) %>%
+    pack_rows("Study 2a", 1, length(fallacy_levels),                              bold = TRUE) %>%
+    pack_rows("Study 2b", length(fallacy_levels) + 1, 2 * length(fallacy_levels), bold = TRUE) %>%
+    pack_rows("Study 3",  2 * length(fallacy_levels) + 1, 3 * length(fallacy_levels), bold = TRUE) %>%
+    footnote(
+      general = paste0(
+        "Each row reports the conditiontreatment main effect from a cell-specific ",
+        "mixed-effects logistic regression: ResponseRecoded ~ condition + (1|rid) + ",
+        "(1|unique_id), binomial logit, restricted to ", item_label, " items. ",
+        "The 'Strong' row pools all ", tolower(item_label),
+        " arguments that are not classified as fallacious; the four fallacy rows ",
+        "use the argument-type classification from arguments_augmented.json. ",
+        "Study 1 is omitted because it has no treatment manipulation."
+      ),
+      general_title    = "Note.",
+      footnote_as_chunk = TRUE,
+      threeparttable   = TRUE
+    ) %>%
+    print()
+
+  cat('<div class="page-break"></div>')
+}
+
+build_fallacy_analyses_table("Climate", "climate", "Table S34", "Climate")
+build_fallacy_analyses_table("Neutral", "neutral", "Table S35", "Neutral")
+
+```
+
